@@ -25,12 +25,12 @@
   font-family: 'Gowun Dodum', sans-serif;
 }
 
-/* 상단 네비게이션 */
+/* 제일 상단 네비게이션 */
 .landing-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 40px;
+  padding: 30px 30px;
 }
 
 .landing-logo {
@@ -82,8 +82,9 @@
 
 /* 히어로 */
 .hero {
-  padding: 20px 40px 60px;
+  padding: 50px 40px 60px; /* ai 학습 플래너 나에게 ~ 상단 여백  */
   max-width: 640px;
+  padding-bottom: 200px;
 }
 
 .hero .eyebrow {
@@ -96,7 +97,7 @@
   background: var(--lav-soft);
   padding: 6px 14px;
   border-radius: 100px;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .hero h1 {
@@ -200,7 +201,7 @@
 
 /* CTA 밴드 */
 .cta-band {
-  max-width: 940px;
+  max-width: 1200px;
   margin: 0 auto;
   text-align: center;
   padding: 52px 40px;

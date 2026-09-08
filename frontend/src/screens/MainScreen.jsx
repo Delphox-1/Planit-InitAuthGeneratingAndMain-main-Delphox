@@ -120,7 +120,7 @@ function s_btnPrimary(disabled) {
   };
 }
 
-export default function MainScreen() {
+export default function MainScreen({ onStartReplan }) {
   const [plan, setPlan] = useState(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -437,7 +437,7 @@ export default function MainScreen() {
 
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
             <button onClick={() => downloadJson(plan)} style={s_btnSecondary}>JSON으로 저장</button>
-            <button onClick={() => (window.location.href = "/calendar")} style={s_btnSecondary}>
+            <button onClick={onStartReplan} style={s_btnSecondary}>
               계획 다시 생성하기
             </button>
           </div>

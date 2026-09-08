@@ -47,7 +47,7 @@ export default function LandingPage({ onNavigate }) {
     <div className="landing">
       <nav className="landing-nav">
         <div className="landing-logo">
-          <span className="dot"></span>Planit
+          <img src="/wordmark.png" alt="Planit" style={{ height: 32 }} />
         </div>
         <div>
           <button className="btn btn-white" onClick={goLogin}>
@@ -60,16 +60,17 @@ export default function LandingPage({ onNavigate }) {
       </nav>
 
       <section className="hero">
-        <div className="eyebrow">🪻 AI 학습 플래너</div>
+        <div className="eyebrow">AI 학습 플래너</div>
         <h1>
           나에게 맞는 학습 계획을
           <br />
           AI가 직접 만들어드려요
         </h1>
-        <p>
-          목차 사진 한 장이면 충분해요. 시험일과 하루 가능 시간만 알려주면 AI가
-          현실적인 학습 일정을 세우고, 밀리면 알아서 다시 짜드려요.
-        </p>
+        <h4>
+          목차 사진 한 장이면 충분해요. 시험일과 하루 가능 시간만 알려주면{' '}
+          <br />
+          AI가 현실적인 학습 일정을 세우고, 밀리면 알아서 다시 짜드려요.
+        </h4>
         <div className="hero-actions">
           <button className="btn btn-white" onClick={scrollToFeatures}>
             더 알아보기 ↓

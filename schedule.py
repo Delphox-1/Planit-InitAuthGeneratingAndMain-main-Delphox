@@ -110,7 +110,7 @@ def generate_study_plan(
     반환값:
     {
         "days": [{"date": "2026-08-25", "minutes": 60,
-                   "items": [{"title": ..., "pagesToday": 8, "totalPages": 32,
+                   "items": [{"title": ..., "subject": ..., "pagesToday": 8, "totalPages": 32,
                               "pageRange": "55~62p", "status": "시작"}]}],
         "totalPages": ...,
         "totalMinutes": ...,
@@ -169,6 +169,7 @@ def generate_study_plan(
             )
             items.append({
                 "title": current["title"],
+                "subject": current.get("subject"),
                 "pagesToday": take,
                 "totalPages": current["pageCount"],
                 "pageRange": page_range,

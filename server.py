@@ -19,9 +19,12 @@ from pdf_extract import extract_toc_text
 from schedule import generate_study_plan
 from checklist_sync import (
     fetch_plan_from_firestore,
+    fetch_plan_meta,
+    mark_leaves_excluded,
     member_id_for_user,
     move_item_in_firestore,
     push_plan_to_firestore,
+    save_plan_meta,
     study_plan_id_for_user,
 )
 
@@ -113,6 +116,10 @@ class GeneratePlanRequest(BaseModel):
                   없는, 시작일~목표일 범위 안의 날짜는 전부 제외일로 처리한다.
     userId: 로그인 파트에서 내려주는 사용자 식별자. 있으면 생성된 플랜을 저장해서
             메인페이지가 나중에 /plans/{user_id}로 다시 조회할 수 있게 한다.
+    excludedLeafKeys: 과목 선택 화면에서 이번에 체크 해제한 단원들의 키
+                      (frontend/src/lib/toc.js의 getLeafUnits 키 규칙과 동일).
+                      "계획 다시 생성하기"를 또 눌렀을 때 이 단원들이 기본값에서
+                      다시 체크된 채로 나타나지 않게, study_plans에 영구 누적해둔다.
     """
     parsedToc: dict
     startDate: date
@@ -120,6 +127,7 @@ class GeneratePlanRequest(BaseModel):
     weekdayMinutes: dict[str, int]
     checkedDates: list[date]
     userId: str | None = None
+    excludedLeafKeys: list[str] = []
 
 
 @app.post("/generate-plan")
@@ -151,17 +159,67 @@ async def generate_plan(req: GeneratePlanRequest):
 
     if req.userId:
         _require_firestore_credentials()
+        study_plan_id = study_plan_id_for_user(req.userId)
         try:
             push_plan_to_firestore(
                 result,
                 member_id=member_id_for_user(req.userId),
-                study_plan_id=study_plan_id_for_user(req.userId),
+                study_plan_id=study_plan_id,
+                credentials_path=CHECKLIST_FIREBASE_CREDENTIALS,
+            )
+            mark_leaves_excluded(
+                study_plan_id,
+                req.excludedLeafKeys,
                 credentials_path=CHECKLIST_FIREBASE_CREDENTIALS,
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"플랜 저장 실패: {e}")
 
     return result
+
+
+class SaveTocRequest(BaseModel):
+    """
+    UploadScreen에서 목차 파싱(AI 분석)이 막 끝난 원본 parsedToc(과목 선택 전, 필터링
+    전 전체 목차)을 저장해둘 때 쓴다. "계획 다시 생성하기"를 누르면 사진 촬영/AI 분석
+    단계 없이 이 원본을 그대로 다시 불러와서 과목 선택 화면부터 마법사를 다시 태운다.
+    """
+    parsedToc: dict
+
+
+@app.put("/plans/{user_id}/toc")
+async def save_toc(user_id: str, req: SaveTocRequest):
+    _require_firestore_credentials()
+    try:
+        save_plan_meta(
+            study_plan_id=study_plan_id_for_user(user_id),
+            parsed_toc=req.parsedToc,
+            credentials_path=CHECKLIST_FIREBASE_CREDENTIALS,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"목차 저장 실패: {e}")
+    return {"status": "ok"}
+
+
+@app.get("/plans/{user_id}/toc")
+async def get_toc(user_id: str):
+    """
+    "계획 다시 생성하기" 버튼이 호출한다. 저장해둔 원본 목차가 있으면 그걸 그대로
+    돌려줘서, 프론트가 목차 업로드 단계를 건너뛰고 과목 선택 화면부터 마법사를
+    다시 시작할 수 있게 한다.
+    """
+    _require_firestore_credentials()
+    try:
+        meta = fetch_plan_meta(study_plan_id_for_user(user_id), credentials_path=CHECKLIST_FIREBASE_CREDENTIALS)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"목차 조회 실패: {e}")
+
+    if meta is None:
+        raise HTTPException(
+            status_code=404,
+            detail="저장된 목차가 없습니다. 목차 업로드부터 다시 진행해주세요.",
+        )
+    return {"parsedToc": meta["parsedToc"], "excludedLeafKeys": meta.get("excludedLeafKeys", [])}
 
 
 @app.get("/plans/{user_id}")
