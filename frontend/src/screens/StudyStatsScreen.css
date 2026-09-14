@@ -144,8 +144,9 @@ body {
   border: 1.5px solid var(--line);
   border-radius: 20px;
   padding: 18px;
+min-height: 140px;
 }
-.top-card .head { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+.top-card .head { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
 .top-card .title { font-weight: 700; font-size: 14px; color: var(--ink); }
 .top-card .lbl { font-size: 11.5px; color: var(--ink-soft); }
 
@@ -163,7 +164,7 @@ body {
 --------------------------------------------------------- */
 .dash-analysis-row {
   display: grid;
-  grid-template-columns: 1.3fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 18px;
   margin-bottom: 16px;
   align-items: start;
@@ -202,12 +203,14 @@ body {
   display: flex; justify-content: space-between;
   font-size: 12px; color: var(--ink-soft);
   padding: 8px 0; border-top: 1px solid var(--line);
+  white-space: nowrap;
+  gap: 8px;
 }
 .goal-stats .row:first-child { border-top: none; }
 .goal-stats b { color: var(--ink); }
 
-.sep { border: none; border-top: 1px solid var(--line); margin: 14px 0; }
-
+.sep { border: none; border-top: 1px solid var(--line); margin: 0px 0; }
+.sep-wide { margin: 14 px 0; } 
 /* 실제 학습시간 vs 비교값(평균) 막대그래프 */
 .mini-bars { display: flex; justify-content: space-between; align-items: flex-end; height: 130px; gap: 6px; }
 .colb { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 6px; }
@@ -222,7 +225,7 @@ body {
 .mini-bars-legend .dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-right: 4px; vertical-align: middle; }
 
 /* 평균 대비 성장률 배지 */
-.growth-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); margin-bottom: 14px; }
+.growth-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); margin-bottom: 14px; margin-top: 10px; }
 .growth-badge {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 11.5px; font-weight: 700;
@@ -233,7 +236,7 @@ body {
 .growth-badge.down { background: #FBEAEA; color: #C0574B; }
 .growth-badge.flat { background: var(--lav-soft); color: var(--ink-soft); }
 
-.callout { display: flex; gap: 8px; font-size: 12px; color: var(--ink-soft); margin-bottom: 8px; line-height: 1.5; }
+.callout { display: flex; gap: 8px; font-size: 12px; color: var(--ink-soft); margin-bottom: 8px; margin-top: 10px; line-height: 1.5; }
 .callout .q { color: var(--lav-deep); font-weight: 700; }
 
 .radar-wrap { position: relative; height: 220px; margin-bottom: 14px; }
