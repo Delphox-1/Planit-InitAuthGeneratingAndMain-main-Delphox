@@ -1,6 +1,8 @@
-// mypage-data.js
-// 마이페이지 화면에 필요한 데이터를 전부 모아서 mockData와 똑같은 모양으로
-// 돌려주는 함수. MyPageScreen.jsx는 이 함수 하나만 부르면 됨.
+// study-stats-data.js
+// 학습통계 화면(StudyStatsScreen.jsx)에 필요한 데이터를 전부 모아서
+// 돌려주는 함수. StudyStatsScreen.jsx는 이 함수 하나만 부르면 됨.
+// (예전 이름 mypage-data.js/getMyPageData였으나, 실제로 쓰는 화면은
+//  마이페이지가 아니라 학습통계라서 이름을 맞춰 바꿈.)
 
 import { db } from "../firebase";
 import { collection, query, where, getDocs, doc, getDoc, Timestamp } from "firebase/firestore";
@@ -38,6 +40,14 @@ function todayString() {
 function startOfDay(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
+  return d;
+}
+// "이번 주"는 월요일 시작(월~일)으로 통일한다.
+function mondayOf(date) {
+  const d = startOfDay(date);
+  const day = d.getDay(); // 일=0, 월=1, ..., 토=6
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diffToMonday);
   return d;
 }
 
@@ -79,15 +89,14 @@ function dateRange(start, days) {
 }
 
 // ---------------------------------------------------------------
-// 일간 분석 (일~토 요일별)
+// 일간 분석 (월~일 요일별)
 // ---------------------------------------------------------------
 async function getDailyAnalysis(memberId) {
   const now = new Date();
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - now.getDay()); // 이번 주 일요일
+  const weekStart = mondayOf(now); // 이번 주 월요일
 
   const dates = dateRange(weekStart, 7);
-  const labels = ["일", "월", "화", "수", "목", "금", "토"];
+  const labels = ["월", "화", "수", "목", "금", "토", "일"];
 
   const bars = [];
   for (let i = 0; i < 7; i++) {
@@ -123,11 +132,13 @@ async function getDailyAnalysis(memberId) {
 async function getWeeklyAnalysis(memberId) {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  // "이번 달 1주차"의 시작을, 1일이 속한 주의 월요일로 정렬한다 (월~일 통일).
+  const firstWeekStart = mondayOf(monthStart);
 
   const bars = [];
   for (let w = 0; w < 4; w++) {
-    const weekStart = new Date(monthStart);
-    weekStart.setDate(monthStart.getDate() + w * 7);
+    const weekStart = new Date(firstWeekStart);
+    weekStart.setDate(firstWeekStart.getDate() + w * 7);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekStart.getDate() + 7);
     const minutes = await getSessionMinutes(memberId, weekStart, weekEnd);
@@ -136,8 +147,11 @@ async function getWeeklyAnalysis(memberId) {
   }
 
   const thisWeekBar = bars.find((b) => b.today) || bars[bars.length - 1];
-  const weekGoal = thisWeekBar.minutes > 0 ? thisWeekBar.minutes : 1; // TODO: 요일별 목표 합산으로 교체 가능
-  const weekRate = Math.min(100, Math.round((thisWeekBar.minutes / weekGoal) * 100));
+
+  // 진짜 이번 주(월~일) 목표: 그 7일간 배정된 study_plan_items의 durationMinutes 합.
+  const thisWeekDates = dateRange(mondayOf(now), 7);
+  const weekGoal = await getGoalMinutes(memberId, thisWeekDates);
+  const weekRate = weekGoal > 0 ? Math.min(100, Math.round((thisWeekBar.minutes / weekGoal) * 100)) : 0;
 
   // "지난달 주간 평균"
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -155,9 +169,9 @@ async function getWeeklyAnalysis(memberId) {
 }
 
 // ---------------------------------------------------------------
-// 전체 마이페이지 데이터 조립
+// 전체 학습통계 데이터 조립
 // ---------------------------------------------------------------
-export async function getMyPageData(memberId) {
+export async function getStudyStatsData(memberId) {
   // 이름은 항상 users/{memberId} 문서에서 최신 값을 직접 읽는다
   // (마이페이지에서 이름 수정하면 여기도 바로 반영되게).
   const userSnap = await getDoc(doc(db, "users", memberId));
