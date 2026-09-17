@@ -8,6 +8,7 @@ import com.google.cloud.firestore.DocumentSnapshot;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
 import com.google.cloud.firestore.QuerySnapshot;
+import com.google.cloud.firestore.SetOptions;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
@@ -75,7 +76,10 @@ public class StudyPlanItemRepository {
                     ? firestore.collection(COLLECTION).document()
                     : firestore.collection(COLLECTION).document(item.getId());
 
-            ref.set(toMap(item, now)).get();
+            // merge(): 이 맵에 없는 필드(예: 파이썬 플랜 생성 파이프라인이 써넣는
+            // "source")는 건드리지 않는다. merge 없이 set()만 쓰면 여기 없는 필드까지
+            // 통째로 지워져서, 진행률 한 번만 바꿔도 다른 쪽이 써둔 값이 날아간다.
+            ref.set(toMap(item, now), SetOptions.merge()).get();
 
             item.setId(ref.getId());
             if (item.getCreatedAt() == null) {

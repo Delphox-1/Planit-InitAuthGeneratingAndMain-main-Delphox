@@ -189,6 +189,9 @@ public class GeminiQuizQuestionGenerator implements QuizQuestionGenerator {
 			- 각 문제는 보기 4개(choice1~choice4), 정답 번호(answerNo, 1~4 정수), 한국어 해설(explanation)을 포함합니다.
 			- 정답 위치(answerNo)는 문제마다 다양하게 분포시킵니다.
 			- 오늘 학습 범위를 벗어나는 내용은 출제하지 않습니다.
+			- 화면이 LaTeX/마크다운을 렌더링하지 않으므로, 수식은 "$", "\\", "^{}" 같은 LaTeX
+			  문법을 쓰지 말고 일반 텍스트로 풀어 씁니다. 예: "a^x" 대신 "a의 x제곱",
+			  "x_1" 대신 "x1", "\\neq" 대신 "≠"처럼 유니코드 기호나 한글 설명으로 대체합니다.
 			- 지정된 JSON 스키마(객체 3개짜리 배열)에 맞춰서만 응답합니다.
 
 			오늘 학습 범위: %s
