@@ -45,6 +45,9 @@ def _get_leaf_items(parsed: dict) -> list[dict]:
                     leaves.append({
                         "title": sub["title"],
                         "subject": chapter.get("subject"),
+                        # 소단원 자체엔 출처가 없다 - 사진/PDF 구분은 과목(챕터) 단위로
+                        # 업로드할 때 정해지므로 부모 챕터의 값을 그대로 물려받는다.
+                        "sourceKind": chapter.get("sourceKind"),
                         "pageCount": int(round(sub["estimatedPageCount"])),
                         "startPage": sub.get("startPage") if not sub.get("needsFallback") else None,
                     })
@@ -53,6 +56,7 @@ def _get_leaf_items(parsed: dict) -> list[dict]:
                 leaves.append({
                     "title": chapter["title"],
                     "subject": chapter.get("subject"),
+                    "sourceKind": chapter.get("sourceKind"),
                     "pageCount": int(round(chapter["estimatedPageCount"])),
                     "startPage": chapter.get("startPage") if not chapter.get("needsFallback") else None,
                 })
@@ -170,6 +174,7 @@ def generate_study_plan(
             items.append({
                 "title": current["title"],
                 "subject": current.get("subject"),
+                "sourceKind": current.get("sourceKind"),
                 "pagesToday": take,
                 "totalPages": current["pageCount"],
                 "pageRange": page_range,

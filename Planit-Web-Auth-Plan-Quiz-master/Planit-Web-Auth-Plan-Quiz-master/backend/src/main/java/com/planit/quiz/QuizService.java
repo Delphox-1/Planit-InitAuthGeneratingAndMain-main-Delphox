@@ -89,6 +89,16 @@ public class QuizService {
 		} catch (ExecutionException | InterruptedException e) {
 			throw ApiException.notFound("오늘의 학습 항목을 불러오지 못했습니다");
 		}
+		// PDF+사진을 섞어 올린 플랜이어도 사진 쪽 항목은 페이지 범위를 신뢰할 수 없으니
+		// 퀴즈 범위에서 아예 뺀다 - requirePdfSource()는 "PDF가 하나라도 있는지"만
+		// 보므로, 오늘 항목 중 실제로 PDF에서 온 것만 여기서 다시 걸러야 한다.
+		List<QueryDocumentSnapshot> pdfDocs = new ArrayList<>();
+		for (QueryDocumentSnapshot doc : docs) {
+			if ("pdf".equals(doc.getString("source"))) {
+				pdfDocs.add(doc);
+			}
+		}
+		docs = pdfDocs;
 		if (docs.isEmpty()) {
 			throw ApiException.notFound("오늘 학습 항목이 없습니다");
 		}

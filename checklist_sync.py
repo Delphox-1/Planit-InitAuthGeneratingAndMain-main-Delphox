@@ -95,6 +95,9 @@ def build_study_plan_items(
                 "planDate": plan_date,
                 "subject": item.get("subject"),
                 "content": content,
+                # 이 항목이 PDF에서 왔는지 사진에서 왔는지 ("pdf" | "image"). 퀴즈봇이
+                # PDF+사진을 섞어 올린 플랜에서도 PDF쪽 항목만 출제 범위에 넣으려고 쓴다.
+                "source": item.get("sourceKind"),
                 "sortOrder": sort_order,
                 "progressRate": item.get("progress", 0),
                 "completedAt": None,

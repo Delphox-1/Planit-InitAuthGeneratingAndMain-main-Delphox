@@ -165,6 +165,40 @@ function s_btnPrimary(disabled) {
   };
 }
 
+// 퀴즈봇 on/off 스위치 - 옛날 벽걸이 전등 스위치처럼 네모난 판 안에서 레버가
+// 좌우로 딸깍 움직이는 느낌을 주려고 pill 모양 대신 각진 판+레버로 만들었다.
+const switchPlate = {
+  width: 60,
+  height: 26,
+  borderRadius: 6,
+  background: 'linear-gradient(180deg, #fff, #EDE3F1)',
+  border: `1px solid ${theme.colors.border}`,
+  boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.18)',
+  position: 'relative',
+  cursor: 'pointer',
+  flexShrink: 0,
+};
+function switchLever(on) {
+  return {
+    position: 'absolute',
+    top: 2,
+    left: on ? 28 : 2,
+    width: 30,
+    height: 20,
+    borderRadius: 4,
+    background: on ? theme.colors.primary : '#B7ABBE',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.5)',
+    transition: 'left 0.15s ease, background 0.15s ease',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 9,
+    fontWeight: 800,
+    color: '#fff',
+    letterSpacing: 0.3,
+  };
+}
+
 // 사이드바(마이페이지/학습통계/챗봇/로그아웃) - 에러/로딩/정상 화면 3곳에서
 // 전부 똑같이 써서, 계획 유무와 상관없이 항상 메뉴를 쓸 수 있게 한다.
 function Sidebar({ open, onClose, navigate, handleLogout }) {
@@ -228,7 +262,9 @@ export default function MainScreen({ onStartReplan }) {
   const [dragOverDate, setDragOverDate] = useState(null);
   const [actionMsg, setActionMsg] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [showQuizPrompt, setShowQuizPrompt] = useState(false);
+  // 전구 스위치 - 켜두고 "오늘 학습 마무리하기"를 누르면 저장 후 바로 퀴즈로,
+  // 꺼두면 물어보지 않고 그냥 저장만 한다.
+  const [quizSwitchOn, setQuizSwitchOn] = useState(false);
 
   const userId = localStorage.getItem('userId') || 'guest'; // TODO: 로그인 붙으면 이 fallback 제거
   const stopwatchStorageKey = `planit_stopwatch_${userId}`;
@@ -349,6 +385,9 @@ export default function MainScreen({ onStartReplan }) {
   const todayItems = planByDate[todayKey()]?.items || [];
   const memberId = plan?.memberId;
 
+  // TODO: 오늘 학습 마무리 후 진행률/마무리 버튼을 잠그는 기능은 아직 개발
+  // 단계라 팀원과 상의 후 잠시 꺼둠 (dayCompleted 기반 잠금 로직 제거).
+
   const handleSetProgress = async (itemId, progressRate) => {
     if (memberId == null) return;
     setActionMsg('');
@@ -415,26 +454,13 @@ export default function MainScreen({ onStartReplan }) {
     setSaving(false);
   };
 
-  // "오늘 학습 마무리하기" 버튼 - 진행률 75% 이상인 항목이 있으면 저장하기 전에
-  // 먼저 퀴즈봇을 풀지 물어본다. 없으면 물어볼 필요가 없으니 바로 저장한다.
-  const handleCompleteDay = () => {
-    const hasQuizScope = todayItems.some((item) => item.progressRate >= 75);
-    if (hasQuizScope) {
-      setShowQuizPrompt(true);
-    } else {
-      saveCompleteDay();
-    }
-  };
-
-  const handleQuizPromptNo = () => {
-    setShowQuizPrompt(false);
-    saveCompleteDay();
-  };
-
-  const handleQuizPromptYes = async () => {
-    setShowQuizPrompt(false);
+  // "오늘 학습 마무리하기" 버튼 - 묻지 않고 스위치 상태 그대로 따른다.
+  // 켜져 있으면 저장 후 바로 퀴즈로 이동, 꺼져 있으면 저장만 한다.
+  const handleCompleteDay = async () => {
     await saveCompleteDay();
-    navigate('/quiz');
+    if (quizSwitchOn) {
+      navigate('/quiz');
+    }
   };
 
   const handleLogout = async () => {
@@ -925,17 +951,41 @@ export default function MainScreen({ onStartReplan }) {
                   padding: 16,
                 }}
               >
-                {saveMsg && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    marginBottom: 8,
+                    minHeight: 26,
+                  }}
+                >
                   <p
                     style={{
                       fontSize: 12,
                       color: theme.colors.primaryDark,
-                      margin: '0 0 8px',
+                      margin: 0,
                     }}
                   >
                     {saveMsg}
                   </p>
-                )}
+                  {plan?.source === 'pdf' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700 }}>퀴즈봇</span>
+                      <div
+                        role="switch"
+                        aria-checked={quizSwitchOn}
+                        onClick={() => setQuizSwitchOn((v) => !v)}
+                        style={switchPlate}
+                      >
+                        <div style={switchLever(quizSwitchOn)}>
+                          {quizSwitchOn ? 'ON' : 'OFF'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={handleCompleteDay}
                   disabled={saving}
@@ -948,42 +998,6 @@ export default function MainScreen({ onStartReplan }) {
           </div>
         </div>
       </div>
-
-      {showQuizPrompt && (
-        <>
-          <div style={sidebarOverlay} onClick={() => setShowQuizPrompt(false)} />
-          <div
-            style={{
-              position: 'fixed',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              zIndex: 21,
-              background: '#fff',
-              borderRadius: theme.radius.lg,
-              boxShadow: theme.shadow,
-              padding: 28,
-              width: 320,
-              textAlign: 'center',
-            }}
-          >
-            <p style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 700 }}>
-              오늘의 퀴즈봇을 풀어볼까요?
-            </p>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={handleQuizPromptYes} style={{ ...s_btnPrimary(false), flex: 1 }}>
-                네
-              </button>
-              <button
-                onClick={handleQuizPromptNo}
-                style={{ ...s_btnSecondary, flex: 1, padding: '10px 0' }}
-              >
-                아니오
-              </button>
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }

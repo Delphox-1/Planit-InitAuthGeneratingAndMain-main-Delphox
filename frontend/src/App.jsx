@@ -149,13 +149,10 @@ function AppRoutes() {
     // 서버에 저장해둔다. 실패해도 지금 진행 중인 마법사는 그대로 계속되게
     // 흐름을 막지 않는다 - 재생성 기능만 나중에 못 쓰게 될 뿐이다.
     const userId = localStorage.getItem('userId') || 'guest';
-    // 퀴즈봇은 PDF 기반 플랜에만 연다 - 사진(vision)으로 읽은 페이지 번호는
-    // PDF 텍스트 추출만큼 정확하다고 보장할 수 없어서다. 과목을 여러 개
-    // 올려서 일부만 PDF인 경우, 전부 PDF일 때만 "pdf"로 인정한다.
+    // 퀴즈봇은 PDF로 만든 과목이 하나라도 있으면 연다 - PDF만 올렸든, PDF와
+    // 사진을 섞어 올렸든 상관없다. 사진만으로 만든 과목뿐일 때만("image") 막는다.
     const chapters = data.chapters || [];
-    const source = chapters.length > 0 && chapters.every((c) => c.sourceKind === 'pdf')
-      ? 'pdf'
-      : 'image';
+    const source = chapters.some((c) => c.sourceKind === 'pdf') ? 'pdf' : 'image';
     fetch(`${API_BASE}/plans/${userId}/toc`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
