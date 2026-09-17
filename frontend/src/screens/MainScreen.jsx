@@ -387,7 +387,7 @@ export default function MainScreen({ onStartReplan }) {
     }
   };
 
-  const handleCompleteDay = async () => {
+  const saveCompleteDay = async () => {
     if (memberId == null) return;
     setSaving(true);
     setSaveMsg('');
@@ -413,15 +413,29 @@ export default function MainScreen({ onStartReplan }) {
       errors.length ? errors.join(' / ') : '오늘 학습을 마무리했어요!',
     );
     setSaving(false);
-    // 퀴즈봇은 진행률 75% 이상인 항목에만 낸다 - 오늘 항목 중 그만큼 진행한 게
-    // 하나도 없으면 물어볼 필요 자체가 없으니 프롬프트를 띄우지 않는다.
+  };
+
+  // "오늘 학습 마무리하기" 버튼 - 진행률 75% 이상인 항목이 있으면 저장하기 전에
+  // 먼저 퀴즈봇을 풀지 물어본다. 없으면 물어볼 필요가 없으니 바로 저장한다.
+  const handleCompleteDay = () => {
     const hasQuizScope = todayItems.some((item) => item.progressRate >= 75);
-    if (errors.length === 0 && hasQuizScope) {
+    if (hasQuizScope) {
       setShowQuizPrompt(true);
+    } else {
+      saveCompleteDay();
     }
   };
 
-  const goToQuiz = () => navigate('/quiz');
+  const handleQuizPromptNo = () => {
+    setShowQuizPrompt(false);
+    saveCompleteDay();
+  };
+
+  const handleQuizPromptYes = async () => {
+    setShowQuizPrompt(false);
+    await saveCompleteDay();
+    navigate('/quiz');
+  };
 
   const handleLogout = async () => {
     try {
@@ -957,11 +971,11 @@ export default function MainScreen({ onStartReplan }) {
               오늘의 퀴즈봇을 풀어볼까요?
             </p>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={goToQuiz} style={{ ...s_btnPrimary(false), flex: 1 }}>
+              <button onClick={handleQuizPromptYes} style={{ ...s_btnPrimary(false), flex: 1 }}>
                 네
               </button>
               <button
-                onClick={() => setShowQuizPrompt(false)}
+                onClick={handleQuizPromptNo}
                 style={{ ...s_btnSecondary, flex: 1, padding: '10px 0' }}
               >
                 아니오
