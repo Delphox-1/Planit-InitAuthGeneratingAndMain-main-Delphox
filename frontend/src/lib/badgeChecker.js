@@ -18,8 +18,9 @@ export const BADGE_DEFS = [
   { key: "totalStudyTime", label: "누적 학습시간", unit: "시간", tiers: [5, 10, 50, 100, 500] },
 ];
 
+// toISOString()은 UTC 기준이라 한국(UTC+9)에서는 날짜가 하루 어긋난다 -> 로컬 날짜 사용
 function todayString() {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString("sv-SE"); // "YYYY-MM-DD"
 }
 
 // ---------------------------------------------------------------
@@ -135,6 +136,18 @@ export async function getBadgesEarnedThisMonth(memberId) {
   return snap.docs.filter((d) => d.data().earnedAt.toDate() >= monthStart).length;
 }
 
+// 남은 양 표시. 누적 학습시간은 소수(0.1555시간)로 나오므로 "n시간 m분"으로 바꾼다.
+// (올림해서 거의 다 왔을 때 "0분 남음"으로 보이지 않게 함. 1e-6은 부동소수점 오차 방지)
+function formatRemaining(def, remaining) {
+  if (def.key !== "totalStudyTime") return `${remaining}${def.unit}`;
+  const totalMinutes = Math.ceil(remaining * 60 - 1e-6);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m}분`;
+  if (m === 0) return `${h}시간`;
+  return `${h}시간 ${m}분`;
+}
+
 // ---------------------------------------------------------------
 // "다음 뱃지까지" — 진행률(%)이 가장 높은(=가장 가까운) 것 하나 선택
 // ---------------------------------------------------------------
@@ -154,7 +167,7 @@ export async function getClosestNextBadge(memberId) {
     if (progress > closestProgress) {
       closestProgress = progress;
       closest = {
-        label: `${nextThreshold}${def.unit} ${def.label}까지 ${nextThreshold - currentValue}${def.unit} 남음`,
+        label: `${nextThreshold}${def.unit} ${def.label}까지 ${formatRemaining(def, nextThreshold - currentValue)} 남음`,
         progressPct: Math.round(progress * 100),
       };
     }
