@@ -38,7 +38,10 @@ function resizeImageToDataUrl(file) {
       URL.revokeObjectURL(img.src);
       resolve(canvas.toDataURL('image/jpeg', 0.85));
     };
-    img.onerror = () => reject(new Error('이미지를 읽을 수 없어요.'));
+    img.onerror = () => {
+      URL.revokeObjectURL(img.src);
+      reject(new Error('이미지를 읽을 수 없어요.'));
+    };
     img.src = URL.createObjectURL(file);
   });
 }
