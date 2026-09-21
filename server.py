@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from api_call import parse_toc_from_images, parse_toc_from_text
+from chat_call import DAILY_LIMIT, get_chat_reply, get_remaining_quota
 from pdf_extract import extract_toc_text
 from schedule import generate_study_plan
 from checklist_sync import (
@@ -282,3 +283,48 @@ async def move_item(user_id: str, req: MoveItemRequest):
 async def health():
     """React 쪽에서 서버가 켜져있는지 확인할 때 쓸 수 있는 간단한 상태 체크용."""
     return {"status": "ok"}
+
+
+class ChatMessage(BaseModel):
+    role: str  # "user" | "model"
+    text: str
+
+
+class ChatRequest(BaseModel):
+    """
+    message: 이번에 사용자가 입력한 메시지.
+    history: 최근 대화 몇 턴 (프론트 ChatbotScreen이 화면에 쌓아둔 것을 그대로 보낸다).
+    context: "오늘 할 일: ..." 처럼 프론트가 이미 들고 있는 캘린더 데이터를 한국어
+             문장으로 요약한 문자열. 없어도 되지만(빈 문자열), 있으면 챗봇이 실제
+             사용자의 오늘 학습 항목을 참고해서 답한다.
+    """
+    message: str
+    history: list[ChatMessage] = []
+    context: str = ""
+
+
+@app.get("/chat/quota")
+async def chat_quota():
+    """채팅창 열자마자 '오늘 몇 번 남았는지'부터 보여주기 위한 조회용 - 메시지를 안 보내도 된다."""
+    return {"remaining": get_remaining_quota(), "dailyLimit": DAILY_LIMIT}
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    """시연용 학습 도우미 챗봇. Gemini 무료 티어를 쓴다 (chat_call.py 참고)."""
+    if not req.message.strip():
+        raise HTTPException(status_code=400, detail="메시지를 입력해주세요.")
+
+    try:
+        reply = get_chat_reply(
+            req.message,
+            history=[m.model_dump() for m in req.history],
+            context=req.context,
+        )
+    except RuntimeError as e:
+        # GEMINI_API_KEY 미설정, 오늘 한도 소진 등 - 프론트가 그대로 보여줄 수 있게 전달.
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"챗봇 응답 생성 실패: {e}")
+
+    return {"reply": reply, "remaining": get_remaining_quota(), "dailyLimit": DAILY_LIMIT}

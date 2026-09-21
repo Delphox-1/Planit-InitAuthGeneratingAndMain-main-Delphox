@@ -105,11 +105,6 @@ const sidebarItem = {
   color: 'var(--ink)',
   cursor: 'pointer',
 };
-const sidebarItemDisabled = {
-  ...sidebarItem,
-  color: 'var(--ink-soft)',
-  cursor: 'not-allowed',
-};
 const sidebarDivider = {
   height: 1,
   background: 'var(--line)',
@@ -208,7 +203,7 @@ export default function StudyStatsScreen() {
       // 로그아웃 요청이 실패해도 로컬 로그인 상태는 지워서 화면은 로그인 화면으로 보낸다.
     }
     localStorage.removeItem('userId');
-    window.location.href = '/upload';
+    window.location.href = '/';
   };
 
   useEffect(() => {
@@ -331,8 +326,14 @@ export default function StudyStatsScreen() {
             >
               학습 통계
             </span>
-            <span style={sidebarItemDisabled} title="준비중">
-              챗봇 (준비중)
+            <span
+              style={sidebarItem}
+              onClick={() => {
+                setSidebarOpen(false);
+                navigate('/chatbot');
+              }}
+            >
+              챗봇
             </span>
             <div style={sidebarDivider} />
             <span

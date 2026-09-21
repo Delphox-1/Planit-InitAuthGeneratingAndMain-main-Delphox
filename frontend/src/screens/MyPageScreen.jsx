@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './MyPageScreen.css';
 import { auth } from '../firebase';
@@ -17,6 +17,31 @@ const AUTH_API_BASE = 'http://localhost:8080';
 // 로그아웃은 다른 화면(MainScreen.jsx, StudyStatsScreen.jsx)과 동일하게
 // 8081번 포트를 쓴다 - 탈퇴(AUTH_API_BASE)와 실제로 다른 값이라 따로 뒀다.
 const LOGOUT_API_BASE = 'http://localhost:8081';
+
+// 프로필 사진 저장용 Storage 버킷이 아직 설정돼 있지 않아서(firebase.js 참고),
+// "이름"과 똑같이 users/{uid} Firestore 문서에 직접 저장하는 방식을 쓴다.
+// 원본 그대로 저장하면 Firestore 문서 1MB 제한에 걸리고 느려지므로, 캔버스로
+// 정사각형으로 잘라 작게(160x160) 압축한 JPEG data URL만 저장한다.
+const AVATAR_SIZE = 160;
+function resizeImageToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const side = Math.min(img.width, img.height);
+      const sx = (img.width - side) / 2;
+      const sy = (img.height - side) / 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = AVATAR_SIZE;
+      canvas.height = AVATAR_SIZE;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
+      URL.revokeObjectURL(img.src);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => reject(new Error('이미지를 읽을 수 없어요.'));
+    img.src = URL.createObjectURL(file);
+  });
+}
 
 // MainScreen.jsx/StudyStatsScreen.jsx와 동일한 상단바 + 햄버거 메뉴
 // (fallback 색상은 StudyStatsScreen.css :root 값과 동일 - 이 화면 CSS엔
@@ -73,11 +98,6 @@ const sidebarItem = {
   fontWeight: 600,
   color: 'var(--ink, #4B3B47)',
   cursor: 'pointer',
-};
-const sidebarItemDisabled = {
-  ...sidebarItem,
-  color: 'var(--ink-soft, #8B7488)',
-  cursor: 'not-allowed',
 };
 const sidebarDivider = {
   height: 1,
@@ -162,9 +182,15 @@ export default function MyPageScreen() {
   const [memberId] = useState(() => localStorage.getItem('userId'));
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [profileImageBase64, setProfileImageBase64] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
+  // 고른 사진을 바로 저장하지 않고, 미리보기에서 "완료"를 눌러야 저장한다.
+  // 크롭/압축까지 미리 끝내둔 data URL이라 완료 누르면 바로 저장만 하면 된다.
+  const [photoPreview, setPhotoPreview] = useState('');
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const photoInputRef = useRef(null);
 
   useEffect(() => {
     if (!memberId) return;
@@ -173,6 +199,7 @@ export default function MyPageScreen() {
       if (snap.exists()) {
         setName(snap.data().name || '');
         setEmail(snap.data().email || '');
+        setProfileImageBase64(snap.data().profileImageBase64 || '');
       }
       setLoading(false);
     })();
@@ -207,8 +234,40 @@ export default function MyPageScreen() {
   };
 
   const handlePhotoChange = () => {
-    setMsg({ type: 'ok', text: '프로필 사진 변경 기능은 준비 중이에요.' });
+    photoInputRef.current?.click();
   };
+
+  const handlePhotoFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // 같은 파일을 연달아 골라도 change가 다시 뜨도록 초기화
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setMsg({ type: 'err', text: '이미지 파일만 올릴 수 있어요.' });
+      return;
+    }
+    try {
+      const dataUrl = await resizeImageToDataUrl(file);
+      setPhotoPreview(dataUrl); // 저장은 아직 안 함 - 미리보기 팝업만 띄운다
+    } catch (e2) {
+      setMsg({ type: 'err', text: '이미지를 처리하지 못했어요: ' + e2.message });
+    }
+  };
+
+  const handleConfirmPhoto = async () => {
+    setPhotoUploading(true);
+    try {
+      await updateDoc(doc(db, 'users', memberId), { profileImageBase64: photoPreview });
+      setProfileImageBase64(photoPreview);
+      setPhotoPreview('');
+      setMsg({ type: 'ok', text: '프로필 사진이 변경됐어요.' });
+    } catch (e2) {
+      setMsg({ type: 'err', text: '프로필 사진 변경에 실패했어요: ' + e2.message });
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
+  const handleCancelPhoto = () => setPhotoPreview('');
 
   const handleWithdraw = async () => {
     if (
@@ -243,7 +302,7 @@ export default function MyPageScreen() {
       // 로그아웃 요청이 실패해도 로컬 로그인 상태는 지워서 화면은 로그인 화면으로 보낸다.
     }
     localStorage.removeItem('userId');
-    window.location.href = '/upload';
+    window.location.href = '/';
   };
 
   if (!memberId) {
@@ -306,8 +365,14 @@ export default function MyPageScreen() {
             >
               학습 통계
             </span>
-            <span style={sidebarItemDisabled} title="준비중">
-              챗봇 (준비중)
+            <span
+              style={sidebarItem}
+              onClick={() => {
+                setSidebarOpen(false);
+                navigate('/chatbot');
+              }}
+            >
+              챗봇
             </span>
             <div style={sidebarDivider} />
             <span
@@ -326,7 +391,22 @@ export default function MyPageScreen() {
       <div className="mypage-page">
         <div className="mypage-layout">
           <aside className="mypage-sidebar">
-            <div className="mypage-avatar">{name ? name.slice(0, 1) : 'P'}</div>
+            <div className="mypage-avatar">
+              {profileImageBase64 ? (
+                <img
+                  src={profileImageBase64}
+                  alt="프로필 사진"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    borderRadius: '50%',
+                    objectFit: 'cover',
+                  }}
+                />
+              ) : (
+                name ? name.slice(0, 1) : 'P'
+              )}
+            </div>
             <div className="mypage-side-name">{name || '회원'}</div>
             <div className="mypage-side-email">{email}</div>
             <nav className="mypage-side-nav">
@@ -370,14 +450,24 @@ export default function MyPageScreen() {
                     <div className="mypage-row-icon">{Icon.photo}</div>
                     <div className="mypage-row-text">
                       <div className="t">프로필 사진</div>
-                      <div className="d">기본 이미지 사용 중</div>
+                      <div className="d">
+                        {profileImageBase64 ? '사용자 지정 이미지 사용 중' : '기본 이미지 사용 중'}
+                      </div>
                     </div>
                   </div>
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={handlePhotoFileSelected}
+                  />
                   <button
                     className="mypage-btn mypage-btn-ghost"
                     onClick={handlePhotoChange}
+                    disabled={photoUploading}
                   >
-                    변경
+                    {photoUploading ? '업로드 중...' : '변경'}
                   </button>
                 </div>
               </div>
@@ -423,6 +513,61 @@ export default function MyPageScreen() {
           </div>
         </div>
       </div>
+
+      {photoPreview && (
+        <>
+          <div style={sidebarOverlay} onClick={handleCancelPhoto} />
+          <div
+            style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              zIndex: 21,
+              background: '#fff',
+              borderRadius: 22,
+              boxShadow: '0 12px 28px -14px rgba(169,143,194,0.35)',
+              padding: 28,
+              width: 320,
+              textAlign: 'center',
+            }}
+          >
+            <p style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700 }}>
+              이 사진으로 변경할까요?
+            </p>
+            <img
+              src={photoPreview}
+              alt="프로필 사진 미리보기"
+              style={{
+                width: 160,
+                height: 160,
+                borderRadius: '50%',
+                objectFit: 'cover',
+                margin: '0 auto 20px',
+                display: 'block',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                className="mypage-btn mypage-btn-ghost"
+                style={{ flex: 1 }}
+                onClick={handleCancelPhoto}
+                disabled={photoUploading}
+              >
+                취소
+              </button>
+              <button
+                className="mypage-btn mypage-btn-primary"
+                style={{ flex: 1 }}
+                onClick={handleConfirmPhoto}
+                disabled={photoUploading}
+              >
+                {photoUploading ? '저장 중...' : '완료'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -20,6 +20,7 @@ import SignupPage from './screens/SignupPage';
 import MyPageScreen from './screens/MyPageScreen';
 import StudyStatsScreen from './screens/StudyStatsScreen';
 import QuizScreen from './screens/QuizScreen';
+import ChatbotScreen from './screens/ChatbotScreen';
 import { filterParsedToc, getLeafUnits, rangeMinutes } from './lib/toc';
 import { s } from './theme';
 import logo from './assets/logo.png';
@@ -67,29 +68,6 @@ function buildWeekdayMinutes({ weekdayRange, weekendRange, weekendExcluded }) {
     result[name] = isWeekend ? weekendMinutes : weekdayMinutes;
   });
   return result;
-}
-
-// handleLoggedIn과 같은 "기존 플랜 있으면 메인, 없으면 마법사" 판단을
-// 별도 컴포넌트로 뺀 것 — AppRoutes 렌더링 중간에 바로 실행하면 안 되고
-// (부수효과는 useEffect 안에서만), 화면엔 아무것도 안 그리고 판단이 끝나는
-// 즉시 navigate로 실제 화면으로 넘어간다.
-function RootRedirect({ userId }) {
-  const navigate = useNavigate();
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`${API_BASE}/plans/${userId}`)
-      .then((res) => {
-        if (!cancelled)
-          navigate(res.ok ? MAIN_PAGE_URL : '/upload', { replace: true });
-      })
-      .catch(() => {
-        if (!cancelled) navigate('/upload', { replace: true });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, navigate]);
-  return null;
 }
 
 function AppRoutes() {
@@ -250,21 +228,12 @@ function AppRoutes() {
     }
   };
 
-  // 로그인 성공 직후 어디로 보낼지 정한다. 예전엔 무조건 "/upload"(마법사
-  // 처음)로 보내서, 이미 만들어둔 플랜이 Firestore에 그대로 있는데도 로그인할
-  // 때마다 목차 사진부터 새로 찍어야 하는 것처럼 보였다 - 실제로 데이터가
-  // 지워진 게 아니라, 그 플랜이 있는지 확인도 안 하고 매번 마법사 처음으로
-  // 보내버린 것뿐이었다. 그래서 GET /plans/{uid}로 "이 사람 플랜이 이미
-  // 있나?"를 먼저 물어보고, 있으면(200) 바로 메인 캘린더로, 없으면(404,
-  // 첫 로그인) 마법사 처음으로 보낸다.
-  const handleLoggedIn = async (uid) => {
+  // 로그인 성공 직후엔 플랜 유무와 상관없이 항상 메인 화면으로 보낸다. 플랜이
+  // 없으면 MainScreen이 빈 껍데기 상태로 보여주고, 거기서 "계획 생성"을 눌러야
+  // 마법사(/upload)로 넘어간다.
+  const handleLoggedIn = (uid) => {
     setUserId(uid);
-    try {
-      const res = await fetch(`${API_BASE}/plans/${uid}`);
-      navigate(res.ok ? MAIN_PAGE_URL : '/upload');
-    } catch {
-      navigate('/upload');
-    }
+    navigate(MAIN_PAGE_URL);
   };
 
   // 세션 확인이 끝나기 전에는 로그인 화면과 메인 화면 중 뭘 보여줄지
@@ -296,8 +265,11 @@ function AppRoutes() {
   // Routes 어디에도 "/"가 없어서 그냥 두면 "*"에 걸려 무조건 /upload로
   // 보내버린다(로그인 직후 판단 로직을 안 거침). handleLoggedIn과 똑같은 기준
   // (기존 플랜 있으면 메인, 없으면 마법사)으로 여기서도 판단해준다.
-  if (location.pathname === '/') {
-    return <RootRedirect userId={userId} />;
+  // 로그인 직후 setUserId와 navigate가 같은 렌더에 반영되지 않으면 "로그인됨 +
+  // 경로 /login" 상태가 한 번 나타나는데, 그대로 두면 아래 "*" 라우트가 /upload로
+  // 보내버린다. 로그인된 사용자가 /login, /signup에 있으면 메인으로 보낸다.
+  if (location.pathname === '/' || location.pathname === '/login' || location.pathname === '/signup') {
+    return <Navigate to={MAIN_PAGE_URL} replace />;
   }
 
   // "/main"은 팀 전체 메인페이지 — 마법사 껍데기(스텝바/카드) 없이 MainScreen이
@@ -316,6 +288,10 @@ function AppRoutes() {
 
   if (location.pathname === '/quiz') {
     return <QuizScreen />;
+  }
+
+  if (location.pathname === '/chatbot') {
+    return <ChatbotScreen />;
   }
 
   const currentStepIndex = STEP_ROUTES.findIndex(

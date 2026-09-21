@@ -43,20 +43,6 @@ function formatMinutesToHM(totalMinutes) {
   return `${h}시간 ${m}분`;
 }
 
-function downloadJson(plan) {
-  const blob = new Blob([JSON.stringify(plan, null, 2)], {
-    type: 'application/json',
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'study_plan.json';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
 const page = {
   minHeight: '100vh',
   background: theme.colors.bg,
@@ -115,11 +101,6 @@ const sidebarItem = {
   color: theme.colors.text,
   cursor: 'pointer',
 };
-const sidebarItemDisabled = {
-  ...sidebarItem,
-  color: theme.colors.textSoft,
-  cursor: 'not-allowed',
-};
 const sidebarDivider = {
   height: 1,
   background: theme.colors.border,
@@ -127,7 +108,10 @@ const sidebarDivider = {
 };
 const layoutScroll = {
   width: '100%',
-  overflowX: 'auto',
+  // overflowX:auto 가 세로도 스크롤 컨테이너로 만들어서 sticky가 안 먹으므로,
+  // 상단바(61px)를 뺀 높이로 이 박스 자체를 세로 스크롤 영역으로 쓴다.
+  height: 'calc(100vh - 61px)',
+  overflow: 'auto',
 };
 const layout = {
   display: 'grid',
@@ -235,8 +219,14 @@ function Sidebar({ open, onClose, navigate, handleLogout }) {
         >
           학습 통계
         </span>
-        <span style={sidebarItemDisabled} title="준비중">
-          챗봇 (준비중)
+        <span
+          style={sidebarItem}
+          onClick={() => {
+            onClose();
+            navigate('/chatbot');
+          }}
+        >
+          챗봇
         </span>
         <div style={sidebarDivider} />
         <span
@@ -352,7 +342,9 @@ export default function MainScreen({ onStartReplan }) {
   const reloadPlan = () =>
     fetch(`${API_BASE}/plans/${userId}`)
       .then((res) => {
-        if (!res.ok) throw new Error('저장된 학습 플랜이 없습니다.');
+        // 404 = 아직 만든 플랜이 없는 정상 상태 - 에러 화면 대신 빈 껍데기 화면을 보여준다.
+        if (res.status === 404) return { days: [] };
+        if (!res.ok) throw new Error('학습 플랜을 불러오지 못했습니다.');
         return res.json();
       })
       .then((data) => {
@@ -382,7 +374,22 @@ export default function MainScreen({ onStartReplan }) {
   const [viewMonth, setViewMonth] = useState(initialMonth.getMonth());
   const [selectedDate, setSelectedDate] = useState(todayKey());
 
-  const todayItems = planByDate[todayKey()]?.items || [];
+  const selectedItems = planByDate[selectedDate]?.items || [];
+  const isSelectedToday = selectedDate === todayKey();
+  const dayOffset = (() => {
+    const [sy, sm, sd] = selectedDate.split('-').map(Number);
+    const [ty, tm, td] = todayKey().split('-').map(Number);
+    return Math.round(
+      (Date.UTC(sy, sm - 1, sd) - Date.UTC(ty, tm - 1, td)) / 86400000,
+    );
+  })();
+  const completeBtnLabel = saving
+    ? '저장 중...'
+    : isSelectedToday
+      ? '오늘 학습 마무리하기'
+      : dayOffset < 0
+        ? '이미 완료된 학습입니다.'
+        : `${dayOffset}일 뒤 학습입니다.`;
   const memberId = plan?.memberId;
 
   // TODO: 오늘 학습 마무리 후 진행률/마무리 버튼을 잠그는 기능은 아직 개발
@@ -473,7 +480,7 @@ export default function MainScreen({ onStartReplan }) {
       // 로그아웃 요청이 실패해도 로컬 로그인 상태는 지워서 화면은 로그인 화면으로 보낸다.
     }
     localStorage.removeItem('userId');
-    window.location.href = '/upload';
+    window.location.href = '/';
   };
 
   const handleDrop = async (targetDate, e) => {
@@ -545,15 +552,13 @@ export default function MainScreen({ onStartReplan }) {
     setViewYear(y);
   };
 
-  const selectedDay = selectedDate
-    ? planByDate[selectedDate] || { date: selectedDate, minutes: 0, items: [] }
-    : null;
   const totalItems = (plan.days || []).reduce(
     (sum, d) => sum + d.items.length,
     0,
   );
   const totalMinutes = (plan.days || []).reduce((sum, d) => sum + d.minutes, 0);
   const totalDays = (plan.days || []).length;
+  const hasPlan = totalDays > 0;
   const avgMinutesPerDay =
     totalDays > 0 ? Math.round(totalMinutes / totalDays) : 0;
 
@@ -596,9 +601,9 @@ export default function MainScreen({ onStartReplan }) {
                 fontSize: 14,
               }}
             >
-              총 {totalItems}개 항목 · 하루 평균{' '}
-              {formatMinutesToHM(avgMinutesPerDay)} 배정 · 항목을 다른 날짜로
-              드래그해서 옮길 수 있어요
+              {hasPlan
+                ? `총 ${totalItems}개 항목 · 하루 평균 ${formatMinutesToHM(avgMinutesPerDay)} 배정 · 항목을 다른 날짜로 드래그해서 옮길 수 있어요`
+                : "아직 학습 계획이 없어요. 오른쪽의 '계획 생성' 버튼으로 만들어보세요."}
             </p>
             {actionMsg && (
               <p
@@ -777,69 +782,6 @@ export default function MainScreen({ onStartReplan }) {
                 )}
               </tbody>
             </table>
-
-            <div
-              style={{
-                border: `1px solid ${theme.colors.border}`,
-                borderRadius: theme.radius.md,
-                padding: 16,
-                marginTop: 16,
-                background: '#FBF9FE',
-              }}
-            >
-              {!selectedDay ? (
-                <p
-                  style={{
-                    color: theme.colors.textSoft,
-                    margin: 0,
-                    fontSize: 14,
-                  }}
-                >
-                  날짜를 선택하면 그날의 학습 항목을 보여줍니다.
-                </p>
-              ) : (
-                <>
-                  <strong>
-                    {selectedDay.date} ({selectedDay.minutes}분)
-                  </strong>
-                  {selectedDay.items.length === 0 ? (
-                    <p
-                      style={{
-                        color: theme.colors.textSoft,
-                        margin: '6px 0 0',
-                      }}
-                    >
-                      배정된 항목 없음
-                    </p>
-                  ) : (
-                    <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                      {selectedDay.items.map((item) => (
-                        <li
-                          key={item.id}
-                          style={{ marginBottom: 4, fontSize: 14 }}
-                        >
-                          {item.subject ? `${item.subject} · ` : ''}
-                          {item.content}{' '}
-                          <span style={{ color: theme.colors.textSoft }}>
-                            ({item.durationMinutes}분)
-                          </span>{' '}
-                          ({item.progressRate}%{item.completed ? ', 완료' : ''})
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <button onClick={() => downloadJson(plan)} style={s_btnSecondary}>
-                JSON으로 저장
-              </button>
-              <button onClick={onStartReplan} style={s_btnSecondary}>
-                계획 다시 생성하기
-              </button>
-            </div>
           </div>
 
           <div
@@ -850,6 +792,10 @@ export default function MainScreen({ onStartReplan }) {
               boxShadow: theme.shadow,
               display: 'flex',
               flexDirection: 'column',
+              position: 'sticky',
+              top: 28,
+              maxHeight: 'calc(100vh - 61px - 56px)',
+              overflowY: 'auto',
             }}
           >
             <div
@@ -874,23 +820,66 @@ export default function MainScreen({ onStartReplan }) {
               <div
                 style={{ display: 'flex', gap: 8, justifyContent: 'center' }}
               >
-                <button onClick={handleStopwatchToggle} style={s_btnSecondary}>
+                <button
+                  onClick={handleStopwatchToggle}
+                  disabled={!isSelectedToday}
+                  style={{
+                    ...s_btnSecondary,
+                    opacity: isSelectedToday ? 1 : 0.5,
+                    cursor: isSelectedToday ? 'pointer' : 'not-allowed',
+                  }}
+                >
                   {stopwatchRunning ? '중단' : '시작'}
                 </button>
-                <button onClick={handleStopwatchReset} style={s_btnSecondary}>
+                <button
+                  onClick={handleStopwatchReset}
+                  disabled={!isSelectedToday}
+                  style={{
+                    ...s_btnSecondary,
+                    opacity: isSelectedToday ? 1 : 0.5,
+                    cursor: isSelectedToday ? 'pointer' : 'not-allowed',
+                  }}
+                >
                   초기화
                 </button>
               </div>
             </div>
 
             <div style={{ padding: 20, flex: 1 }}>
-              <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>오늘 할 일</h3>
-              {todayItems.length === 0 ? (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                {hasPlan && (
+                  <button
+                    onClick={onStartReplan}
+                    style={{ ...s_btnSecondary, flex: 1 }}
+                  >
+                    계획 수정하기
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    if (
+                      !hasPlan ||
+                      window.confirm(
+                        '현재 계획은 삭제됩니다. 괜찮으신가요?\n(새 계획 생성을 끝까지 마치면 기존 계획이 새 계획으로 바뀝니다.)',
+                      )
+                    ) {
+                      navigate('/upload');
+                    }
+                  }}
+                  style={{ ...s_btnSecondary, flex: 1 }}
+                >
+                  계획 생성
+                </button>
+              </div>
+              <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>
+                {isSelectedToday ? '오늘 할 일' : `${selectedDate} 할 일`}
+              </h3>
+              {selectedItems.length === 0 ? (
                 <p style={{ color: theme.colors.textSoft, fontSize: 14 }}>
-                  오늘 배정된 학습 항목이 없어요.
+                  {isSelectedToday ? '오늘' : '이 날'} 배정된 학습 항목이 없어요.
                 </p>
               ) : (
-                todayItems.map((item) => (
+                selectedItems.map((item) => (
                   <div key={item.id} style={{ marginBottom: 18 }}>
                     <p
                       style={{
@@ -919,6 +908,7 @@ export default function MainScreen({ onStartReplan }) {
                           <button
                             key={p}
                             onClick={() => handleSetProgress(item.id, p)}
+                            disabled={!isSelectedToday}
                             style={{
                               flex: 1,
                               padding: '6px 0',
@@ -932,7 +922,8 @@ export default function MainScreen({ onStartReplan }) {
                               color: active ? '#fff' : theme.colors.textSoft,
                               fontSize: 12,
                               fontWeight: 700,
-                              cursor: 'pointer',
+                              cursor: isSelectedToday ? 'pointer' : 'not-allowed',
+                              opacity: isSelectedToday ? 1 : 0.6,
                             }}
                           >
                             {p}%
@@ -944,7 +935,7 @@ export default function MainScreen({ onStartReplan }) {
                 ))
               )}
             </div>
-            {todayItems.length > 0 && (
+            {selectedItems.length > 0 && (
               <div
                 style={{
                   borderTop: `1px solid ${theme.colors.border}`,
@@ -988,10 +979,10 @@ export default function MainScreen({ onStartReplan }) {
                 </div>
                 <button
                   onClick={handleCompleteDay}
-                  disabled={saving}
-                  style={s_btnPrimary(saving)}
+                  disabled={saving || !isSelectedToday}
+                  style={s_btnPrimary(saving || !isSelectedToday)}
                 >
-                  {saving ? '저장 중...' : '오늘 학습 마무리하기'}
+                  {completeBtnLabel}
                 </button>
               </div>
             )}
