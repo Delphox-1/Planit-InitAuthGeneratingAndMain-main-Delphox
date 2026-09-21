@@ -127,7 +127,10 @@ const sidebarDivider = {
 };
 const layoutScroll = {
   width: '100%',
-  overflowX: 'auto',
+  // overflowX:auto 가 세로도 스크롤 컨테이너로 만들어서 sticky가 안 먹으므로,
+  // 상단바(61px)를 뺀 높이로 이 박스 자체를 세로 스크롤 영역으로 쓴다.
+  height: 'calc(100vh - 61px)',
+  overflow: 'auto',
 };
 const layout = {
   display: 'grid',
@@ -162,6 +165,40 @@ function s_btnPrimary(disabled) {
     fontWeight: 700,
     cursor: disabled ? 'not-allowed' : 'pointer',
     width: '100%',
+  };
+}
+
+// 퀴즈봇 on/off 스위치 - 옛날 벽걸이 전등 스위치처럼 네모난 판 안에서 레버가
+// 좌우로 딸깍 움직이는 느낌을 주려고 pill 모양 대신 각진 판+레버로 만들었다.
+const switchPlate = {
+  width: 60,
+  height: 26,
+  borderRadius: 6,
+  background: 'linear-gradient(180deg, #fff, #EDE3F1)',
+  border: `1px solid ${theme.colors.border}`,
+  boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.18)',
+  position: 'relative',
+  cursor: 'pointer',
+  flexShrink: 0,
+};
+function switchLever(on) {
+  return {
+    position: 'absolute',
+    top: 2,
+    left: on ? 28 : 2,
+    width: 30,
+    height: 20,
+    borderRadius: 4,
+    background: on ? theme.colors.primary : '#B7ABBE',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.5)',
+    transition: 'left 0.15s ease, background 0.15s ease',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 9,
+    fontWeight: 800,
+    color: '#fff',
+    letterSpacing: 0.3,
   };
 }
 
@@ -228,6 +265,9 @@ export default function MainScreen({ onStartReplan }) {
   const [dragOverDate, setDragOverDate] = useState(null);
   const [actionMsg, setActionMsg] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // 전구 스위치 - 켜두고 "오늘 학습 마무리하기"를 누르면 저장 후 바로 퀴즈로,
+  // 꺼두면 물어보지 않고 그냥 저장만 한다.
+  const [quizSwitchOn, setQuizSwitchOn] = useState(false);
 
   const userId = localStorage.getItem('userId') || 'guest'; // TODO: 로그인 붙으면 이 fallback 제거
   const stopwatchStorageKey = `planit_stopwatch_${userId}`;
@@ -345,8 +385,26 @@ export default function MainScreen({ onStartReplan }) {
   const [viewMonth, setViewMonth] = useState(initialMonth.getMonth());
   const [selectedDate, setSelectedDate] = useState(todayKey());
 
-  const todayItems = planByDate[todayKey()]?.items || [];
+  const selectedItems = planByDate[selectedDate]?.items || [];
+  const isSelectedToday = selectedDate === todayKey();
+  const dayOffset = (() => {
+    const [sy, sm, sd] = selectedDate.split('-').map(Number);
+    const [ty, tm, td] = todayKey().split('-').map(Number);
+    return Math.round(
+      (Date.UTC(sy, sm - 1, sd) - Date.UTC(ty, tm - 1, td)) / 86400000,
+    );
+  })();
+  const completeBtnLabel = saving
+    ? '저장 중...'
+    : isSelectedToday
+      ? '오늘 학습 마무리하기'
+      : dayOffset < 0
+        ? '이미 완료된 학습입니다.'
+        : `${dayOffset}일 뒤 학습입니다.`;
   const memberId = plan?.memberId;
+
+  // TODO: 오늘 학습 마무리 후 진행률/마무리 버튼을 잠그는 기능은 아직 개발
+  // 단계라 팀원과 상의 후 잠시 꺼둠 (dayCompleted 기반 잠금 로직 제거).
 
   const handleSetProgress = async (itemId, progressRate) => {
     if (memberId == null) return;
@@ -386,7 +444,7 @@ export default function MainScreen({ onStartReplan }) {
     }
   };
 
-  const handleCompleteDay = async () => {
+  const saveCompleteDay = async () => {
     if (memberId == null) return;
     setSaving(true);
     setSaveMsg('');
@@ -412,6 +470,15 @@ export default function MainScreen({ onStartReplan }) {
       errors.length ? errors.join(' / ') : '오늘 학습을 마무리했어요!',
     );
     setSaving(false);
+  };
+
+  // "오늘 학습 마무리하기" 버튼 - 묻지 않고 스위치 상태 그대로 따른다.
+  // 켜져 있으면 저장 후 바로 퀴즈로 이동, 꺼져 있으면 저장만 한다.
+  const handleCompleteDay = async () => {
+    await saveCompleteDay();
+    if (quizSwitchOn) {
+      navigate('/quiz');
+    }
   };
 
   const handleLogout = async () => {
@@ -801,6 +868,10 @@ export default function MainScreen({ onStartReplan }) {
               boxShadow: theme.shadow,
               display: 'flex',
               flexDirection: 'column',
+              position: 'sticky',
+              top: 28,
+              maxHeight: 'calc(100vh - 61px - 56px)',
+              overflowY: 'auto',
             }}
           >
             <div
@@ -825,23 +896,41 @@ export default function MainScreen({ onStartReplan }) {
               <div
                 style={{ display: 'flex', gap: 8, justifyContent: 'center' }}
               >
-                <button onClick={handleStopwatchToggle} style={s_btnSecondary}>
+                <button
+                  onClick={handleStopwatchToggle}
+                  disabled={!isSelectedToday}
+                  style={{
+                    ...s_btnSecondary,
+                    opacity: isSelectedToday ? 1 : 0.5,
+                    cursor: isSelectedToday ? 'pointer' : 'not-allowed',
+                  }}
+                >
                   {stopwatchRunning ? '중단' : '시작'}
                 </button>
-                <button onClick={handleStopwatchReset} style={s_btnSecondary}>
+                <button
+                  onClick={handleStopwatchReset}
+                  disabled={!isSelectedToday}
+                  style={{
+                    ...s_btnSecondary,
+                    opacity: isSelectedToday ? 1 : 0.5,
+                    cursor: isSelectedToday ? 'pointer' : 'not-allowed',
+                  }}
+                >
                   초기화
                 </button>
               </div>
             </div>
 
             <div style={{ padding: 20, flex: 1 }}>
-              <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>오늘 할 일</h3>
-              {todayItems.length === 0 ? (
+              <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>
+                {isSelectedToday ? '오늘 할 일' : `${selectedDate} 할 일`}
+              </h3>
+              {selectedItems.length === 0 ? (
                 <p style={{ color: theme.colors.textSoft, fontSize: 14 }}>
-                  오늘 배정된 학습 항목이 없어요.
+                  {isSelectedToday ? '오늘' : '이 날'} 배정된 학습 항목이 없어요.
                 </p>
               ) : (
-                todayItems.map((item) => (
+                selectedItems.map((item) => (
                   <div key={item.id} style={{ marginBottom: 18 }}>
                     <p
                       style={{
@@ -870,6 +959,7 @@ export default function MainScreen({ onStartReplan }) {
                           <button
                             key={p}
                             onClick={() => handleSetProgress(item.id, p)}
+                            disabled={!isSelectedToday}
                             style={{
                               flex: 1,
                               padding: '6px 0',
@@ -883,7 +973,8 @@ export default function MainScreen({ onStartReplan }) {
                               color: active ? '#fff' : theme.colors.textSoft,
                               fontSize: 12,
                               fontWeight: 700,
-                              cursor: 'pointer',
+                              cursor: isSelectedToday ? 'pointer' : 'not-allowed',
+                              opacity: isSelectedToday ? 1 : 0.6,
                             }}
                           >
                             {p}%
@@ -895,30 +986,54 @@ export default function MainScreen({ onStartReplan }) {
                 ))
               )}
             </div>
-            {todayItems.length > 0 && (
+            {selectedItems.length > 0 && (
               <div
                 style={{
                   borderTop: `1px solid ${theme.colors.border}`,
                   padding: 16,
                 }}
               >
-                {saveMsg && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    marginBottom: 8,
+                    minHeight: 26,
+                  }}
+                >
                   <p
                     style={{
                       fontSize: 12,
                       color: theme.colors.primaryDark,
-                      margin: '0 0 8px',
+                      margin: 0,
                     }}
                   >
                     {saveMsg}
                   </p>
-                )}
+                  {plan?.source === 'pdf' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700 }}>퀴즈봇</span>
+                      <div
+                        role="switch"
+                        aria-checked={quizSwitchOn}
+                        onClick={() => setQuizSwitchOn((v) => !v)}
+                        style={switchPlate}
+                      >
+                        <div style={switchLever(quizSwitchOn)}>
+                          {quizSwitchOn ? 'ON' : 'OFF'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={handleCompleteDay}
-                  disabled={saving}
-                  style={s_btnPrimary(saving)}
+                  disabled={saving || !isSelectedToday}
+                  style={s_btnPrimary(saving || !isSelectedToday)}
                 >
-                  {saving ? '저장 중...' : '오늘 학습 마무리하기'}
+                  {completeBtnLabel}
                 </button>
               </div>
             )}
