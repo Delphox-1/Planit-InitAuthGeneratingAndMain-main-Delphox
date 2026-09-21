@@ -43,20 +43,6 @@ function formatMinutesToHM(totalMinutes) {
   return `${h}시간 ${m}분`;
 }
 
-function downloadJson(plan) {
-  const blob = new Blob([JSON.stringify(plan, null, 2)], {
-    type: 'application/json',
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'study_plan.json';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
 const page = {
   minHeight: '100vh',
   background: theme.colors.bg,
@@ -355,7 +341,9 @@ export default function MainScreen({ onStartReplan }) {
   const reloadPlan = () =>
     fetch(`${API_BASE}/plans/${userId}`)
       .then((res) => {
-        if (!res.ok) throw new Error('저장된 학습 플랜이 없습니다.');
+        // 404 = 아직 만든 플랜이 없는 정상 상태 - 에러 화면 대신 빈 껍데기 화면을 보여준다.
+        if (res.status === 404) return { days: [] };
+        if (!res.ok) throw new Error('학습 플랜을 불러오지 못했습니다.');
         return res.json();
       })
       .then((data) => {
@@ -563,15 +551,13 @@ export default function MainScreen({ onStartReplan }) {
     setViewYear(y);
   };
 
-  const selectedDay = selectedDate
-    ? planByDate[selectedDate] || { date: selectedDate, minutes: 0, items: [] }
-    : null;
   const totalItems = (plan.days || []).reduce(
     (sum, d) => sum + d.items.length,
     0,
   );
   const totalMinutes = (plan.days || []).reduce((sum, d) => sum + d.minutes, 0);
   const totalDays = (plan.days || []).length;
+  const hasPlan = totalDays > 0;
   const avgMinutesPerDay =
     totalDays > 0 ? Math.round(totalMinutes / totalDays) : 0;
 
@@ -614,9 +600,9 @@ export default function MainScreen({ onStartReplan }) {
                 fontSize: 14,
               }}
             >
-              총 {totalItems}개 항목 · 하루 평균{' '}
-              {formatMinutesToHM(avgMinutesPerDay)} 배정 · 항목을 다른 날짜로
-              드래그해서 옮길 수 있어요
+              {hasPlan
+                ? `총 ${totalItems}개 항목 · 하루 평균 ${formatMinutesToHM(avgMinutesPerDay)} 배정 · 항목을 다른 날짜로 드래그해서 옮길 수 있어요`
+                : "아직 학습 계획이 없어요. 오른쪽의 '계획 생성' 버튼으로 만들어보세요."}
             </p>
             {actionMsg && (
               <p
@@ -795,69 +781,6 @@ export default function MainScreen({ onStartReplan }) {
                 )}
               </tbody>
             </table>
-
-            <div
-              style={{
-                border: `1px solid ${theme.colors.border}`,
-                borderRadius: theme.radius.md,
-                padding: 16,
-                marginTop: 16,
-                background: '#FBF9FE',
-              }}
-            >
-              {!selectedDay ? (
-                <p
-                  style={{
-                    color: theme.colors.textSoft,
-                    margin: 0,
-                    fontSize: 14,
-                  }}
-                >
-                  날짜를 선택하면 그날의 학습 항목을 보여줍니다.
-                </p>
-              ) : (
-                <>
-                  <strong>
-                    {selectedDay.date} ({selectedDay.minutes}분)
-                  </strong>
-                  {selectedDay.items.length === 0 ? (
-                    <p
-                      style={{
-                        color: theme.colors.textSoft,
-                        margin: '6px 0 0',
-                      }}
-                    >
-                      배정된 항목 없음
-                    </p>
-                  ) : (
-                    <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                      {selectedDay.items.map((item) => (
-                        <li
-                          key={item.id}
-                          style={{ marginBottom: 4, fontSize: 14 }}
-                        >
-                          {item.subject ? `${item.subject} · ` : ''}
-                          {item.content}{' '}
-                          <span style={{ color: theme.colors.textSoft }}>
-                            ({item.durationMinutes}분)
-                          </span>{' '}
-                          ({item.progressRate}%{item.completed ? ', 완료' : ''})
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <button onClick={() => downloadJson(plan)} style={s_btnSecondary}>
-                JSON으로 저장
-              </button>
-              <button onClick={onStartReplan} style={s_btnSecondary}>
-                계획 다시 생성하기
-              </button>
-            </div>
           </div>
 
           <div
@@ -922,6 +845,31 @@ export default function MainScreen({ onStartReplan }) {
             </div>
 
             <div style={{ padding: 20, flex: 1 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                {hasPlan && (
+                  <button
+                    onClick={onStartReplan}
+                    style={{ ...s_btnSecondary, flex: 1 }}
+                  >
+                    계획 수정하기
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    if (
+                      !hasPlan ||
+                      window.confirm(
+                        '현재 계획은 삭제됩니다. 괜찮으신가요?\n(새 계획 생성을 끝까지 마치면 기존 계획이 새 계획으로 바뀝니다.)',
+                      )
+                    ) {
+                      navigate('/upload');
+                    }
+                  }}
+                  style={{ ...s_btnSecondary, flex: 1 }}
+                >
+                  계획 생성
+                </button>
+              </div>
               <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>
                 {isSelectedToday ? '오늘 할 일' : `${selectedDate} 할 일`}
               </h3>
