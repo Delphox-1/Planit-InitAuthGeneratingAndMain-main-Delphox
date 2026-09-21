@@ -439,8 +439,8 @@ export default function StudyStatsScreen() {
               <div className="ps-progress" style={{ textAlign: 'left' }}>
                 <div className="row">
                   <span>
-                    {todayGoal.periodActualMinutes}분 /{' '}
-                    {todayGoal.periodGoalMinutes}분
+                    {formatGoalMinutes(todayGoal.periodActualMinutes)} /{' '}
+                    {formatGoalMinutes(todayGoal.periodGoalMinutes)}
                   </span>
                   <span>{todayGoal.periodRate}%</span>
                 </div>
@@ -484,7 +484,7 @@ export default function StudyStatsScreen() {
                 </div>
                 <div className="row">
                   <span>⏱️ {a.actualLabel}</span>
-                  <b>{a.periodActualMinutes}분</b>
+                  <b>{formatGoalMinutes(a.periodActualMinutes)}</b>
                 </div>
                 <div className="row">
                   <span>🎯 {a.rateLabel}</span>
@@ -498,7 +498,7 @@ export default function StudyStatsScreen() {
                 {hasComparisonData ? (
                   <>
                     <span>
-                      {a.comparisonLabel}({a.comparisonAvgMinutes}분) 대비
+                      {a.comparisonLabel}({formatGoalMinutes(a.comparisonAvgMinutes)}) 대비
                     </span>
                     <span className={`growth-badge ${growthClass}`}>
                       {arrow} {Math.abs(pct)}%
@@ -564,12 +564,12 @@ export default function StudyStatsScreen() {
                   ) : diff >= 0 ? (
                     <>
                       {a.comparisonLabel}보다 {a.periodLabel}{' '}
-                      <b>{Math.abs(diff)}분</b> 더 학습했어요!
+                      <b>{formatGoalMinutes(Math.abs(diff))}</b> 더 학습했어요!
                     </>
                   ) : (
                     <>
                       {a.comparisonLabel}보다 {a.periodLabel}{' '}
-                      <b>{Math.abs(diff)}분</b> 적게 학습했어요.
+                      <b>{formatGoalMinutes(Math.abs(diff))}</b> 적게 학습했어요.
                     </>
                   )}
                 </span>

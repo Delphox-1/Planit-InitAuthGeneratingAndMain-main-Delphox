@@ -12,8 +12,9 @@ import {
   collection, collectionGroup, query, where, getDocs, Timestamp,
 } from "firebase/firestore";
 
+// toISOString()은 UTC 기준이라 한국(UTC+9)에서는 날짜가 하루 어긋난다 -> 로컬 날짜 사용
 function todayString() {
-  return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+  return new Date().toLocaleDateString("sv-SE"); // "YYYY-MM-DD"
 }
 
 function startOfDay(date) {
