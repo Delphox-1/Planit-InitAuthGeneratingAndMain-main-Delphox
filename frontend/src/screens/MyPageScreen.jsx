@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './MyPageScreen.css';
-import { auth } from '../firebase';
+import { auth, storage } from '../firebase';
 import { db } from '../firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
+} from 'firebase/firestore';
 import { updateProfile, sendPasswordResetEmail } from 'firebase/auth';
+import { ref as storageRef, uploadString, getDownloadURL } from 'firebase/storage';
 
 // =========================================================================
 // 회원정보 전용 마이페이지 (mypage_mockup.html을 React로 옮긴 버전).
@@ -17,11 +27,13 @@ const AUTH_API_BASE = 'http://localhost:8080';
 // 로그아웃은 다른 화면(MainScreen.jsx, StudyStatsScreen.jsx)과 동일하게
 // 8081번 포트를 쓴다 - 탈퇴(AUTH_API_BASE)와 실제로 다른 값이라 따로 뒀다.
 const LOGOUT_API_BASE = 'http://localhost:8081';
-
-// 프로필 사진 저장용 Storage 버킷이 아직 설정돼 있지 않아서(firebase.js 참고),
-// "이름"과 똑같이 users/{uid} Firestore 문서에 직접 저장하는 방식을 쓴다.
-// 원본 그대로 저장하면 Firestore 문서 1MB 제한에 걸리고 느려지므로, 캔버스로
-// 정사각형으로 잘라 작게(160x160) 압축한 JPEG data URL만 저장한다.
+// 프로필 사진은 Firebase Storage(profile_images/{uid}/{시각}.jpg)에 실제 파일로
+// 올리고, Firestore users/{uid} 문서에는 그 파일의 다운로드 URL(profileImageUrl)만
+// 저장한다. 같은 계정으로 로그인한 웹/앱이 인터넷만 되면 항상 같은 사진을 본다 -
+// 자체 서버 방식과 달리 같은 와이파이일 필요가 없다. 바꿀 때마다 이전 파일을
+// 지우지 않고 새 파일로 남겨서 users/{uid}/profile_photos 서브컬렉션에 기록해두고,
+// "이전 사진" 갤러리에서 다시 골라 쓸 수 있게 한다. Storage는 Blaze(종량제) 요금제부터
+// 켜지는데, 이 정도 사용량(작은 이미지 몇 장)은 무료 한도 안이라 실제 과금은 없다.
 const AVATAR_SIZE = 160;
 function resizeImageToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -185,7 +197,7 @@ export default function MyPageScreen() {
   const [memberId] = useState(() => localStorage.getItem('userId'));
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [profileImageBase64, setProfileImageBase64] = useState('');
+  const [profileImageUrl, setProfileImageUrl] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
   // 고른 사진을 바로 저장하지 않고, 미리보기에서 "완료"를 눌러야 저장한다.
   // 크롭/압축까지 미리 끝내둔 data URL이라 완료 누르면 바로 저장만 하면 된다.
@@ -193,7 +205,23 @@ export default function MyPageScreen() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // 이전에 올렸던 프로필 사진들 (최신순). "이전 사진" 갤러리에 보여준다.
+  const [photoHistory, setPhotoHistory] = useState([]);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const photoInputRef = useRef(null);
+
+  const loadPhotoHistory = async () => {
+    try {
+      const q = query(
+        collection(db, 'users', memberId, 'profile_photos'),
+        orderBy('uploadedAt', 'desc'),
+      );
+      const snap = await getDocs(q);
+      setPhotoHistory(snap.docs.map((d) => d.data()));
+    } catch {
+      // 목록을 못 불러와도 사진 변경 자체는 계속 가능해야 하므로 조용히 무시한다.
+    }
+  };
 
   useEffect(() => {
     if (!memberId) return;
@@ -202,8 +230,10 @@ export default function MyPageScreen() {
       if (snap.exists()) {
         setName(snap.data().name || '');
         setEmail(snap.data().email || '');
-        setProfileImageBase64(snap.data().profileImageBase64 || '');
+        // profileImageUrl이 아직 없으면(예전 base64 방식으로 저장했던 계정) 그 값을 대신 보여준다.
+        setProfileImageUrl(snap.data().profileImageUrl || snap.data().profileImageBase64 || '');
       }
+      await loadPhotoHistory();
       setLoading(false);
     })();
   }, [memberId]);
@@ -259,9 +289,18 @@ export default function MyPageScreen() {
   const handleConfirmPhoto = async () => {
     setPhotoUploading(true);
     try {
-      await updateDoc(doc(db, 'users', memberId), { profileImageBase64: photoPreview });
-      setProfileImageBase64(photoPreview);
+      const ts = Date.now();
+      const fileRef = storageRef(storage, `profile_images/${memberId}/${ts}.jpg`);
+      await uploadString(fileRef, photoPreview, 'data_url');
+      const url = await getDownloadURL(fileRef);
+      await updateDoc(doc(db, 'users', memberId), { profileImageUrl: url });
+      await setDoc(doc(db, 'users', memberId, 'profile_photos', String(ts)), {
+        url,
+        uploadedAt: ts,
+      });
+      setProfileImageUrl(url);
       setPhotoPreview('');
+      await loadPhotoHistory(); // 방금 올린 사진이 갤러리 맨 앞에 바로 보이도록 새로고침
       setMsg({ type: 'ok', text: '프로필 사진이 변경됐어요.' });
     } catch (e2) {
       setMsg({ type: 'err', text: '프로필 사진 변경에 실패했어요: ' + e2.message });
@@ -271,6 +310,17 @@ export default function MyPageScreen() {
   };
 
   const handleCancelPhoto = () => setPhotoPreview('');
+
+  const handleSelectFromHistory = async (url) => {
+    try {
+      await updateDoc(doc(db, 'users', memberId), { profileImageUrl: url });
+      setProfileImageUrl(url);
+      setGalleryOpen(false);
+      setMsg({ type: 'ok', text: '프로필 사진이 변경됐어요.' });
+    } catch (e2) {
+      setMsg({ type: 'err', text: '사진 선택에 실패했어요: ' + e2.message });
+    }
+  };
 
   const handleWithdraw = async () => {
     if (
@@ -395,9 +445,9 @@ export default function MyPageScreen() {
         <div className="mypage-layout">
           <aside className="mypage-sidebar">
             <div className="mypage-avatar">
-              {profileImageBase64 ? (
+              {profileImageUrl ? (
                 <img
-                  src={profileImageBase64}
+                  src={profileImageUrl}
                   alt="프로필 사진"
                   style={{
                     width: '100%',
@@ -454,7 +504,7 @@ export default function MyPageScreen() {
                     <div className="mypage-row-text">
                       <div className="t">프로필 사진</div>
                       <div className="d">
-                        {profileImageBase64 ? '사용자 지정 이미지 사용 중' : '기본 이미지 사용 중'}
+                        {profileImageUrl ? '사용자 지정 이미지 사용 중' : '기본 이미지 사용 중'}
                       </div>
                     </div>
                   </div>
@@ -467,7 +517,7 @@ export default function MyPageScreen() {
                   />
                   <button
                     className="mypage-btn mypage-btn-ghost"
-                    onClick={handlePhotoChange}
+                    onClick={() => setGalleryOpen(true)}
                     disabled={photoUploading}
                   >
                     {photoUploading ? '업로드 중...' : '변경'}
@@ -568,6 +618,104 @@ export default function MyPageScreen() {
                 {photoUploading ? '저장 중...' : '완료'}
               </button>
             </div>
+          </div>
+        </>
+      )}
+
+      {galleryOpen && (
+        <>
+          <div style={sidebarOverlay} onClick={() => setGalleryOpen(false)} />
+          <div
+            style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              zIndex: 21,
+              background: '#fff',
+              borderRadius: 22,
+              boxShadow: '0 12px 28px -14px rgba(169,143,194,0.35)',
+              padding: 28,
+              width: 380,
+              maxHeight: '70vh',
+              overflowY: 'auto',
+              textAlign: 'center',
+            }}
+          >
+            <p style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700 }}>
+              프로필 사진 변경
+            </p>
+            <button
+              className="mypage-btn mypage-btn-primary"
+              style={{ width: '100%', marginBottom: 20 }}
+              onClick={() => {
+                setGalleryOpen(false);
+                handlePhotoChange();
+              }}
+              disabled={photoUploading}
+            >
+              새 사진 선택
+            </button>
+            {photoHistory.length === 0 ? (
+              <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--muted, #9A8A96)' }}>
+                아직 이전에 올린 사진이 없어요.
+              </p>
+            ) : (
+              <>
+                <p style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, textAlign: 'left' }}>
+                  이전 사진 중에서 선택
+                </p>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: 10,
+                    marginBottom: 20,
+                  }}
+                >
+                  {photoHistory.map((p) => (
+                    <button
+                      key={p.url}
+                      onClick={() => handleSelectFromHistory(p.url)}
+                      style={{
+                        border:
+                          p.url === profileImageUrl
+                            ? '3px solid var(--brand, #A98FC2)'
+                            : '1px solid var(--line, #F7DCE0)',
+                        borderRadius: 12,
+                        padding: 0,
+                        cursor: 'pointer',
+                        background: 'none',
+                        lineHeight: 0,
+                      }}
+                      title={
+                        p.uploadedAt
+                          ? new Date(p.uploadedAt).toLocaleString()
+                          : undefined
+                      }
+                    >
+                      <img
+                        src={p.url}
+                        alt="이전 프로필 사진"
+                        style={{
+                          width: '100%',
+                          aspectRatio: '1 / 1',
+                          objectFit: 'cover',
+                          borderRadius: 10,
+                        }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            <button
+              className="mypage-btn mypage-btn-ghost"
+              style={{ width: '100%' }}
+              onClick={() => setGalleryOpen(false)}
+            >
+              닫기
+            </button>
           </div>
         </>
       )}

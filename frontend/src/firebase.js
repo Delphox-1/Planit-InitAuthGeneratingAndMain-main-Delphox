@@ -16,13 +16,16 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";   // ← 이 줄 추가
+import { getStorage } from "firebase/storage";       // 프로필 사진 파일 저장용 (Blaze 요금제 필요)
 
 const firebaseConfig = {
   apiKey: "AIzaSyARjWc5NK1owKyP2WsXRGVILj_BLBRnEb4",
   authDomain: "planit-ccfff.firebaseapp.com",
   projectId: "planit-ccfff",
+  storageBucket: "planit-ccfff.firebasestorage.app",
 };
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);   // ← 추가
+export const storage = getStorage(app);
