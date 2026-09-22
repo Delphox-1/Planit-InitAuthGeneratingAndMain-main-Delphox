@@ -47,8 +47,8 @@ def _usage_doc_ref():
 
 
 def get_remaining_quota() -> int:
-    """오늘 챗봇을 몇 번 더 쓸 수 있는지. Firestore 연결이 안 되면(키 파일 없음 등)
-    카운트를 못 세는 것뿐이니, 막지 않고 그냥 전체 한도를 돌려준다."""
+    """오늘 챗봇을 몇 번 더 쓸 수 있는지 (앱 전체 공유 한도). Firestore 연결이 안
+    되면(키 파일 없음 등) 카운트를 못 세는 것뿐이니, 막지 않고 그냥 전체 한도를 돌려준다."""
     try:
         doc = _usage_doc_ref().get()
     except Exception:
