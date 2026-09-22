@@ -34,8 +34,13 @@ const BADGE_VALUE_CALCULATORS = {
   totalStudyTime: calculateTotalStudyHours,
 };
 
+// toISOString()은 UTC 기준이라 한국(UTC+9)에서는 날짜가 하루 어긋난다.
+// 그래서 브라우저 로컬 날짜(YYYY-MM-DD)로 만든다. (sv-SE 로케일 = ISO 형식)
+function toDateString(date) {
+  return date.toLocaleDateString("sv-SE");
+}
 function todayString() {
-  return new Date().toISOString().slice(0, 10);
+  return toDateString(new Date());
 }
 function startOfDay(date) {
   const d = new Date(date);
@@ -83,7 +88,7 @@ function dateRange(start, days) {
   for (let i = 0; i < days; i++) {
     const d = new Date(start);
     d.setDate(d.getDate() + i);
-    arr.push(d.toISOString().slice(0, 10));
+    arr.push(toDateString(d));
   }
   return arr;
 }
@@ -100,7 +105,11 @@ async function getDailyAnalysis(memberId) {
 
   const bars = [];
   for (let i = 0; i < 7; i++) {
-    const minutes = await getSessionMinutes(memberId, new Date(dates[i]), new Date(new Date(dates[i]).getTime() + 86400000));
+    const dayStart = new Date(weekStart);
+    dayStart.setDate(weekStart.getDate() + i);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayStart.getDate() + 1);
+    const minutes = await getSessionMinutes(memberId, dayStart, dayEnd);
     const isToday = dates[i] === todayString();
     bars.push({ label: isToday ? `${labels[i]}(오늘)` : labels[i], minutes: Math.round(minutes), today: isToday });
   }
