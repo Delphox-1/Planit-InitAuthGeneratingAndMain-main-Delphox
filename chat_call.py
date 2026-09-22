@@ -22,8 +22,8 @@ MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 # 무료 티어는 "This model is currently experiencing high demand"(503) 같은 일시적
 # 과부하 응답이 종종 온다. GeminiQuizQuestionGenerator(자바 쪽)와 같은 재시도 정책.
-MAX_ATTEMPTS = 3
-RETRY_DELAY_SECONDS = 1.5
+MAX_ATTEMPTS = 5
+RETRY_DELAY_SECONDS = 2
 
 # gemini-3.6-flash 무료 티어 하루 요청 한도(대략치, 구글이 바꿀 수 있어 환경변수로
 # 덮어쓸 수 있게 해둔다). 다 쓴 뒤에 호출하면 Gemini가 어차피 거부하니, 여기서
@@ -68,6 +68,20 @@ def _increment_usage() -> None:
     except Exception:
         pass  # 카운트 실패는 챗봇 응답 자체를 막을 이유가 안 된다.
 
+
+def _mark_quota_exhausted() -> None:
+    """구글이 실제로 429(RESOURCE_EXHAUSTED)를 주면, 우리 카운터를 그 자리에서
+    한도까지 채워버린다. 구글 무료 티어의 하루 리셋 시각(대략 태평양 자정 기준)이
+    한국 자정과 안 맞아서, 날짜 바뀜만 보고 세는 우리 카운터가 "아직 남았다"고
+    잘못 표시할 수 있다 - 구글이 직접 거부했다는 건 그 자체로 가장 확실한 신호이니,
+    그걸 받는 즉시 우리 쪽도 "소진"으로 맞춰서 화면이 더는 헛갈리지 않게 한다."""
+    try:
+        _usage_doc_ref().set(
+            {"count": DAILY_LIMIT, "date": datetime.date.today().isoformat()}, merge=True
+        )
+    except Exception:
+        pass
+
 SYSTEM_PROMPT = """너는 'Planit'이라는 공부 계획 앱 안에 있는 학습 도우미 챗봇이다.
 사용자가 업로드한 책의 목차를 바탕으로 만들어진 학습 캘린더 데이터를 참고해서,
 공부 계획/진도/오늘 할 일에 대한 질문에 친절하고 간결하게 답한다.
@@ -95,10 +109,13 @@ SYSTEM_PROMPT = """너는 'Planit'이라는 공부 계획 앱 안에 있는 학�
 
 
 def _get_client() -> genai.Client:
-    api_key = os.environ.get("GEMINI_API_KEY")
+    # 퀴즈봇(자바)도 GEMINI_API_KEY를 쓰는데, 같은 값을 공유하면 하루 무료
+    # 한도(20회)를 챗봇·퀴즈봇이 나눠 쓰게 된다. CHAT_GEMINI_API_KEY가 있으면
+    # 그걸 우선 쓰고, 없으면(따로 안 나눴으면) GEMINI_API_KEY로 폴백한다.
+    api_key = os.environ.get("CHAT_GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "GEMINI_API_KEY 환경변수가 설정되어 있지 않습니다. "
+            "CHAT_GEMINI_API_KEY(또는 GEMINI_API_KEY) 환경변수가 설정되어 있지 않습니다. "
             "https://aistudio.google.com/apikey 에서 무료로 키를 발급받아 설정해주세요."
         )
     return genai.Client(api_key=api_key)
@@ -154,7 +171,12 @@ def get_chat_reply(message: str, history: list[dict] | None = None, context: str
             if attempt < MAX_ATTEMPTS:
                 time.sleep(RETRY_DELAY_SECONDS * attempt)
         except Exception as e:
-            # 4xx(키·모델명 오류) 등은 다시 물어봐도 똑같이 실패하므로 바로 포기한다.
+            if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
+                _mark_quota_exhausted()
+                raise RuntimeError(
+                    f"오늘 챗봇 사용 한도({DAILY_LIMIT}회)를 다 썼어요. 내일 다시 시도해주세요."
+                ) from e
+            # 그 외 4xx(키·모델명 오류) 등은 다시 물어봐도 똑같이 실패하므로 바로 포기한다.
             raise RuntimeError(f"Gemini 호출에 실패했습니다: {e}") from e
 
     raise RuntimeError(f"Gemini 호출에 실패했습니다({MAX_ATTEMPTS}회 재시도): {last_error}")

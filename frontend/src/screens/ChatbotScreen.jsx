@@ -229,16 +229,28 @@ function Sidebar({ open, onClose, navigate, handleLogout }) {
   );
 }
 
+const WELCOME_MESSAGE = {
+  role: 'model',
+  text: '안녕하세요! Planit 학습 도우미예요. 오늘 할 일이나 공부 계획에 대해 뭐든 물어보세요.',
+};
+
 export default function ChatbotScreen() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [plan, setPlan] = useState(null);
-  const [messages, setMessages] = useState([
-    {
-      role: 'model',
-      text: '안녕하세요! Planit 학습 도우미예요. 오늘 할 일이나 공부 계획에 대해 뭐든 물어보세요.',
-    },
-  ]);
+  const userId = localStorage.getItem('userId') || 'guest';
+  // 페이지 이동/새로고침해도 대화가 안 사라지게 sessionStorage에 들고 있는다
+  // (탭을 닫으면 사라짐 - 서버 어딘가에 영구 저장할 정도의 기능은 아니라서 이 정도면 충분).
+  const chatStorageKey = `planit_chat_${userId}`;
+  const [messages, setMessages] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(chatStorageKey);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : [WELCOME_MESSAGE];
+    } catch {
+      return [WELCOME_MESSAGE];
+    }
+  });
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -247,8 +259,16 @@ export default function ChatbotScreen() {
   const [quota, setQuota] = useState(null);
   const listEndRef = useRef(null);
 
-  const userId = localStorage.getItem('userId') || 'guest';
   const contextSummary = useMemo(() => buildContextSummary(plan), [plan]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(chatStorageKey, JSON.stringify(messages));
+    } catch {
+      // sessionStorage를 못 쓰는 환경이면 그냥 이번 렌더 동안만 메모리로 유지한다.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
 
   useEffect(() => {
     fetch(`${API_BASE}/plans/${userId}`)
