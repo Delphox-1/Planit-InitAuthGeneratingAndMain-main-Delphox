@@ -461,11 +461,14 @@ export default function MainScreen({ onStartReplan }) {
     setSaving(false);
   };
 
-  // "오늘 학습 마무리하기" 버튼 - 묻지 않고 스위치 상태 그대로 따른다.
-  // 켜져 있으면 저장 후 바로 퀴즈로 이동, 꺼져 있으면 저장만 한다.
+  // "오늘 학습 마무리하기" 버튼 - 스위치가 켜져 있어도, 퀴즈봇 출제 기준인
+  // 진행률 75% 이상인 항목이 오늘 하나도 없으면 퀴즈로 보내지 않고 저장만 한다
+  // (Spring 쪽 QuizService.QUIZ_SCOPE_MIN_PROGRESS=75와 동일한 기준).
   const handleCompleteDay = async () => {
     await saveCompleteDay();
-    if (quizSwitchOn) {
+    const todayItems = planByDate[todayKey()]?.items || [];
+    const hasQuizScopeItem = todayItems.some((it) => it.progressRate >= 75);
+    if (quizSwitchOn && hasQuizScopeItem) {
       navigate('/quiz');
     }
   };
