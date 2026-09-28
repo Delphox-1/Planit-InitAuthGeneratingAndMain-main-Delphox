@@ -82,7 +82,11 @@ export default function QuizScreen() {
       <span style={s.tag}>🧠 퀴즈봇</span>
       <h2 style={{ ...s.title, margin: "0 0 20px" }}>오늘의 퀴즈</h2>
 
-      {planError || quiz ? (
+      {planError ? (
+        <div style={s.card}>
+          <p style={s.errorText}>{planError}</p>
+        </div>
+      ) : quiz ? (
         startError && <p style={s.errorText}>{startError}</p>
       ) : (
       <div style={s.card}>
