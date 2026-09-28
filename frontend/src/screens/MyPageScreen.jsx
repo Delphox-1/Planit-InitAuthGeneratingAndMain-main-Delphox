@@ -199,10 +199,14 @@ export default function MyPageScreen() {
     )
       return;
     try {
-      await fetch(`${AUTH_API_BASE}/api/auth/withdraw`, {
+      const res = await fetch(`${AUTH_API_BASE}/api/auth/withdraw`, {
         method: 'POST',
         credentials: 'include',
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error((body && body.message) || `요청 실패 (${res.status})`);
+      }
       localStorage.removeItem('userId');
       window.location.href = '/';
     } catch (e) {
