@@ -82,7 +82,9 @@ export default function QuizScreen() {
       <span style={s.tag}>🧠 퀴즈봇</span>
       <h2 style={{ ...s.title, margin: "0 0 20px" }}>오늘의 퀴즈</h2>
 
-      {planError ? null : (
+      {planError || quiz ? (
+        startError && <p style={s.errorText}>{startError}</p>
+      ) : (
       <div style={s.card}>
         {!plan ? (
           <p style={{ color: theme.colors.textSoft, fontSize: 14 }}>불러오는 중...</p>
@@ -94,18 +96,13 @@ export default function QuizScreen() {
             <ul style={{ margin: "0 0 16px", paddingLeft: 18 }}>
               {plan.items.map((it, i) => (
                 <li key={i} style={{ marginBottom: 6, fontSize: 14 }}>
-                  {it.content}{" "}
-                  <span style={{ color: theme.colors.textSoft }}>
-                    ({it.progressRate}% · {it.inQuizScope ? "퀴즈 범위" : "진행률 부족"})
-                  </span>
+                  {it.content}
                 </li>
               ))}
             </ul>
-            {!quiz && (
-              <button onClick={handleStart} disabled={starting} style={s.btnPrimary(starting)}>
-                {starting ? "문제 만드는 중..." : "퀴즈 시작"}
-              </button>
-            )}
+            <button onClick={handleStart} disabled={starting} style={s.btnPrimary(starting)}>
+              {starting ? "문제 만드는 중..." : "퀴즈 시작"}
+            </button>
             {startError && <p style={s.errorText}>{startError}</p>}
           </>
         )}
