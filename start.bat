@@ -6,7 +6,10 @@ set "DIR=%~dp0"
 
 REM 1) Backend (Python/uvicorn)
 REM --host 0.0.0.0: 안드로이드 실기기(같은 와이파이)에서도 PC IP로 접속할 수 있게 한다.
-start "Planit Backend" cmd /k "cd /d "%DIR%" && python -m uvicorn server:app --reload --host 0.0.0.0"
+REM Python 3.11 런처(py -3.11)가 있으면 그걸 쓰고, 없으면 PATH의 python을 쓴다.
+set "PY=python"
+py -3.11 --version >nul 2>nul && set "PY=py -3.11"
+start "Planit Backend" cmd /k "cd /d "%DIR%" && %PY% -m uvicorn server:app --reload --host 0.0.0.0"
 
 REM 2) Checklist (Gradle)
 start "Planit Checklist" cmd /k "cd /d "%DIR%Planit-Web-Checklist-main" && gradlew.bat bootRun"
