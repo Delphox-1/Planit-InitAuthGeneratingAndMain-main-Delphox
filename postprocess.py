@@ -210,11 +210,17 @@ def add_estimated_page_counts(parsed: dict) -> dict:
       여전히 "확인 필요" 상태로 보여야 하고, estimatedPageCount는 그 확인 전까지
       스케줄이 끊기지 않게 하는 임시값일 뿐이다.
     - 페이지 수가 확정된 항목이 하나도 없어 평균조차 낼 수 없으면 None으로 둔다.
+    - 최소 1로 내림 처리한다(endPage - startPage + 1이 0 이하로 나오는 경우 포함).
+      목차 없는 PDF를 본문 스캔으로 분석할 때는 한 페이지에 항목이 여러 개
+      들어있는 게 흔해서(예: 카드형 요약노트), 같은 페이지를 공유하는 항목은
+      endPage가 startPage보다 작게 계산될 수 있다. 이걸 그대로 두면 그 항목의
+      가중치가 0이 되어 schedule.py의 분량 배분 루프가 그 항목에서 멈춰버린다
+      (leaf_remaining=0 -> 그날 이후 스케줄 전체가 빈 상태로 굳어버림).
     """
     leaves = _get_leaf_items(parsed)
 
     known_counts = [
-        leaf["endPage"] - leaf["startPage"] + 1
+        max(1, leaf["endPage"] - leaf["startPage"] + 1)
         for leaf in leaves
         if leaf.get("contentType", "CONTENT") == "CONTENT"
         and leaf.get("startPage") is not None
@@ -224,7 +230,7 @@ def add_estimated_page_counts(parsed: dict) -> dict:
 
     for leaf in leaves:
         if leaf.get("startPage") is not None and leaf.get("endPage") is not None:
-            leaf["estimatedPageCount"] = leaf["endPage"] - leaf["startPage"] + 1
+            leaf["estimatedPageCount"] = max(1, leaf["endPage"] - leaf["startPage"] + 1)
         else:
             leaf["estimatedPageCount"] = average_count
 
@@ -251,8 +257,12 @@ def detect_page_order_anomalies(parsed: dict) -> dict:
     - 사용자에게 절대 노출하지 않는다. 이 결과는 endPage 계산 전에 실행되어,
       이상치로 판정된 startPage를 null로 무효화한다 (이미 있는 '페이지 정보
       누락' 처리 경로 -> needsFallback/건너뛰기 로직을 그대로 재사용하기 위함).
-    - order 기준으로 순회하면서 이전 값보다 작거나 같은 값이 나오면
-      "믿을 수 없는 값"으로 보고 startPage를 null로 지운다.
+    - order 기준으로 순회하면서 이전 값보다 "작은" 값이 나오면(역행) "믿을 수
+      없는 값"으로 보고 startPage를 null로 지운다. 이전 값과 "같은" 것은
+      anomaly로 보지 않는다 - 목차 없는 PDF를 본문 스캔으로 분석할 때(수험서/
+      요약노트류)는 한 페이지 안에 여러 항목이 들어있는 게 정상이라, 같은
+      페이지가 연달아 나온다고 잘못 읽은 값으로 취급하면 정상 항목의 페이지
+      정보를 전부 지워버리게 된다.
     - volume이 이전 챕터와 다르면 비교 기준(prev_page)을 리셋한다.
     - 반드시 compute_end_pages보다 먼저 호출해야 한다. 그래야 잘못된 페이지
       번호가 다른 챕터의 endPage 계산까지 오염시키는 것을 막을 수 있다.
@@ -272,8 +282,8 @@ def detect_page_order_anomalies(parsed: dict) -> dict:
         if page is None:
             prev_page = None  # 이미 페이지 정보가 없는 항목 -> 기준점 리셋
             continue
-        if prev_page is not None and page <= prev_page:
-            # 이전 챕터보다 작거나 같은 페이지 -> 명백히 잘못 읽은 값으로 간주
+        if prev_page is not None and page < prev_page:
+            # 이전 챕터보다 뒤로 간(역행한) 페이지 -> 명백히 잘못 읽은 값으로 간주
             chapter["startPage"] = None
             chapter["pageOrderAnomaly"] = True
             has_anomaly = True
@@ -290,7 +300,7 @@ def detect_page_order_anomalies(parsed: dict) -> dict:
             if sub_page is None:
                 sub_prev = None
                 continue
-            if sub_prev is not None and sub_page <= sub_prev:
+            if sub_prev is not None and sub_page < sub_prev:
                 sub["startPage"] = None
                 sub["pageOrderAnomaly"] = True
                 has_anomaly = True

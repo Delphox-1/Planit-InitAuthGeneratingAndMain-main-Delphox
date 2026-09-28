@@ -3,7 +3,6 @@
 React 프론트엔드와 연결하기 위한 FastAPI 서버.
 - 로컬 개발용. `uvicorn server:app --reload`로 실행한다.
 - 목차 파싱(사진 여러 장/PDF)과 학습 플랜 생성을 각각 엔드포인트로 노출한다.
-- ANTHROPIC_API_KEY는 코드/저장소가 아니라 서버 실행 환경(OS 환경변수)에 설정한다.
 """
 import base64
 import os
@@ -12,14 +11,20 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from api_call import parse_toc_from_images, parse_toc_from_text
-from chat_call import DAILY_LIMIT, get_chat_reply, get_remaining_quota
-from pdf_extract import extract_toc_text
+from api_call import (
+    parse_toc_from_full_text,
+    parse_toc_from_images,
+    parse_toc_from_page_images,
+    parse_toc_from_text,
+)
+from pdf_extract import extract_all_pages_text, extract_toc_text, get_page_count
 from schedule import generate_study_plan
 from checklist_sync import (
+    delete_plan_from_firestore,
     fetch_plan_from_firestore,
     fetch_plan_meta,
     mark_leaves_excluded,
@@ -77,7 +82,11 @@ async def parse_toc_image(
         })
 
     try:
-        result = parse_toc_from_images(images, total_pages=total_pages)
+        # parse_toc_from_images는 Anthropic SDK를 동기(블로킹) 방식으로 호출한다.
+        # await 없이 그냥 부르면 이 호출이 끝날 때까지 서버 전체(단일 이벤트
+        # 루프)가 다른 요청을 하나도 처리 못 한다 - 스레드풀에서 돌려서
+        # 이벤트 루프를 막지 않게 한다.
+        result = await run_in_threadpool(parse_toc_from_images, images, total_pages=total_pages)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -89,7 +98,15 @@ async def parse_toc_pdf(
     file: UploadFile = File(...),
     total_pages: int | None = Form(None),
 ):
-    """목차가 포함된 PDF를 업로드하면 구조화된 챕터 JSON을 반환한다."""
+    """
+    PDF를 업로드하면 구조화된 챕터 JSON을 반환한다. 세 경로 중 하나를 자동으로 탄다:
+    1. 목차 페이지를 찾으면 그 페이지 텍스트만 분석한다 (가장 저렴하고 빠름).
+    2. 목차는 없지만 텍스트 레이어는 있으면(수험서, 요약노트 등 흔한 경우) 본문
+       전체를 AI에게 그대로 읽혀서 형식에 기대지 않고 구조를 판단하게 한다.
+    3. 텍스트 레이어가 아예 없으면(스캔본이거나, 글자를 폰트가 아니라 벡터
+       도형으로 그린 PDF) 페이지를 이미지로 렌더링해서 사진과 같은 비전
+       경로로 읽는다 - 이 경우 사용자가 따로 사진을 다시 올릴 필요가 없다.
+    """
     pdf_bytes = await file.read()
 
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
@@ -97,8 +114,24 @@ async def parse_toc_pdf(
         tmp_path = tmp.name
 
     try:
-        toc_text = extract_toc_text(tmp_path)
-        result = parse_toc_from_text(toc_text, total_pages=total_pages)
+        # 아래 전부(PDF 텍스트/이미지 추출, AI 호출)는 동기(블로킹) 함수라서
+        # 이벤트 루프에서 직접 부르면 이 요청이 끝날 때까지 서버가 다른 요청을
+        # 하나도 못 받는다(특히 AI 호출은 목차 없는 두꺼운 PDF에서 몇 분씩
+        # 걸릴 수 있다) - 전부 스레드풀에서 돌린다.
+        toc_text = await run_in_threadpool(extract_toc_text, tmp_path)
+        if toc_text is not None:
+            result = await run_in_threadpool(parse_toc_from_text, toc_text, total_pages=total_pages)
+        else:
+            pages = await run_in_threadpool(extract_all_pages_text, tmp_path)
+            if any(p["text"].strip() for p in pages):
+                result = await run_in_threadpool(parse_toc_from_full_text, pages, total_pages=total_pages)
+            else:
+                page_count = await run_in_threadpool(get_page_count, tmp_path)
+                result = await run_in_threadpool(
+                    parse_toc_from_page_images, tmp_path, page_count, total_pages=total_pages
+                )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -256,6 +289,20 @@ async def get_plan(user_id: str):
     return plan
 
 
+@app.delete("/plans/{user_id}")
+async def delete_plan(user_id: str):
+    """메인 화면의 "계획 삭제" 버튼이 호출한다. 이 사용자의 플랜 전체를 지운다."""
+    _require_firestore_credentials()
+    try:
+        deleted = delete_plan_from_firestore(
+            study_plan_id_for_user(user_id),
+            credentials_path=CHECKLIST_FIREBASE_CREDENTIALS,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"플랜 삭제 실패: {e}")
+    return {"status": "ok", "deleted": deleted}
+
+
 class MoveItemRequest(BaseModel):
     itemId: str
     toDate: str
@@ -284,48 +331,3 @@ async def move_item(user_id: str, req: MoveItemRequest):
 async def health():
     """React 쪽에서 서버가 켜져있는지 확인할 때 쓸 수 있는 간단한 상태 체크용."""
     return {"status": "ok"}
-
-
-class ChatMessage(BaseModel):
-    role: str  # "user" | "model"
-    text: str
-
-
-class ChatRequest(BaseModel):
-    """
-    message: 이번에 사용자가 입력한 메시지.
-    history: 최근 대화 몇 턴 (프론트 ChatbotScreen이 화면에 쌓아둔 것을 그대로 보낸다).
-    context: "오늘 할 일: ..." 처럼 프론트가 이미 들고 있는 캘린더 데이터를 한국어
-             문장으로 요약한 문자열. 없어도 되지만(빈 문자열), 있으면 챗봇이 실제
-             사용자의 오늘 학습 항목을 참고해서 답한다.
-    """
-    message: str
-    history: list[ChatMessage] = []
-    context: str = ""
-
-
-@app.get("/chat/quota")
-async def chat_quota():
-    """채팅창 열자마자 '오늘 몇 번 남았는지'부터 보여주기 위한 조회용 - 메시지를 안 보내도 된다."""
-    return {"remaining": get_remaining_quota(), "dailyLimit": DAILY_LIMIT}
-
-
-@app.post("/chat")
-async def chat(req: ChatRequest):
-    """시연용 학습 도우미 챗봇. Gemini 무료 티어를 쓴다 (chat_call.py 참고)."""
-    if not req.message.strip():
-        raise HTTPException(status_code=400, detail="메시지를 입력해주세요.")
-
-    try:
-        reply = get_chat_reply(
-            req.message,
-            history=[m.model_dump() for m in req.history],
-            context=req.context,
-        )
-    except RuntimeError as e:
-        # GEMINI_API_KEY 미설정, 오늘 한도 소진 등 - 프론트가 그대로 보여줄 수 있게 전달.
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"챗봇 응답 생성 실패: {e}")
-
-    return {"reply": reply, "remaining": get_remaining_quota(), "dailyLimit": DAILY_LIMIT}

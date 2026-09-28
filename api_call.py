@@ -13,8 +13,15 @@ import os
 import json
 from anthropic import Anthropic
 
-from prompt import TOC_PARSING_PROMPT
-from postprocess import postprocess_toc_result, safe_json_parse
+from prompt import FULL_TEXT_CHAPTER_PROMPT, TOC_PARSING_PROMPT
+from postprocess import (
+    add_estimated_page_counts,
+    apply_non_content_keyword_filter,
+    compute_end_pages,
+    detect_page_order_anomalies,
+    postprocess_toc_result,
+    safe_json_parse,
+)
 
 MODEL_NAME = "claude-sonnet-5"
 
@@ -79,6 +86,178 @@ def parse_toc_from_text(toc_text: str, total_pages: int | None = None, max_retri
             continue
 
     raise RuntimeError(f"목차 파싱 실패 (재시도 {max_retries}회 소진): {last_error}")
+
+
+def _chunk_pages(pages: list[dict], chunk_chars: int) -> list[list[dict]]:
+    """
+    페이지 목록을 글자 수 기준으로 구간(청크)으로 나눈다. 한 청크가 너무 커서
+    LLM 컨텍스트/출력 한도를 넘기지 않게 하기 위함 - 페이지 경계는 항상
+    지킨다(한 페이지가 두 청크에 걸쳐 잘리지 않는다).
+    """
+    chunks: list[list[dict]] = []
+    current: list[dict] = []
+    current_len = 0
+    for p in pages:
+        current.append(p)
+        current_len += len(p["text"])
+        if current_len >= chunk_chars:
+            chunks.append(current)
+            current = []
+            current_len = 0
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def parse_toc_from_full_text(
+    pages: list[dict],
+    total_pages: int | None = None,
+    chunk_chars: int = 30000,
+    max_retries: int = 2,
+) -> dict:
+    """
+    목차 페이지가 없는 PDF용: pdf_extract.extract_all_pages_text()가 뽑아낸
+    페이지별 본문을 그대로 LLM에 읽혀서, 목차 형식에 기대지 않고 AI가 직접
+    학습 단위(장/절/항목)를 판단하게 한다. 문서가 길면 여러 구간(청크)으로
+    나눠 각각 호출한 뒤 결과를 하나로 합친다 - 청크 하나가 LLM 컨텍스트를
+    넘지 않게 하기 위함이며, 각 청크는 실제 페이지 번호가 적힌 [p.N] 마커를
+    보고 startPage를 채우므로 청크 경계와 무관하게 정확하다.
+
+    청크별 파싱까지만 하고(safe_json_parse), endPage 계산/이상치 검증 등은
+    전체 챕터를 합친 뒤 한 번만 수행한다 - endPage는 "다음 챕터의 startPage"에
+    의존하는데, 그 다음 챕터가 다른 청크에 있을 수 있기 때문이다.
+    """
+    client = _get_client()
+    chunks = _chunk_pages(pages, chunk_chars)
+
+    all_chapters: list[dict] = []
+    order_offset = 0
+    for chunk in chunks:
+        chunk_text = "\n\n".join(f"[p.{p['page']}]\n{p['text']}" for p in chunk)
+        page_range = f"{chunk[0]['page']}~{chunk[-1]['page']}"
+        prompt = FULL_TEXT_CHAPTER_PROMPT.format(page_range=page_range)
+
+        parsed_chunk = None
+        last_error = None
+        for attempt in range(max_retries + 1):
+            response = client.messages.create(
+                model=MODEL_NAME,
+                # 두꺼운 책은 청크 하나에도 챕터/항목이 많이 나올 수 있어 여유를 둔다.
+                max_tokens=16000,
+                messages=[
+                    {"role": "user", "content": prompt + "\n\n[본문]\n" + chunk_text}
+                ],
+            )
+            raw_text = "".join(
+                block.text for block in response.content if getattr(block, "type", "") == "text"
+            )
+            try:
+                parsed_chunk = safe_json_parse(raw_text)
+                break
+            except Exception as e:
+                last_error = e
+                continue
+
+        if parsed_chunk is None:
+            raise RuntimeError(f"목차 추정 실패 (p.{page_range}, 재시도 {max_retries}회 소진): {last_error}")
+
+        # 청크마다 order가 1부터 다시 시작하므로, 청크 순서를 보존하도록 오프셋을 더한다
+        # (한 청크에 챕터가 1000개를 넘는 비정상적인 경우가 아니면 겹치지 않는다).
+        for ch in parsed_chunk.get("chapters", []):
+            ch["order"] = order_offset + ch.get("order", 0)
+            all_chapters.append(ch)
+        order_offset += 1000
+
+    merged = {"chapters": all_chapters}
+    merged = detect_page_order_anomalies(merged)
+    merged = compute_end_pages(merged, total_pages=total_pages)
+    merged = apply_non_content_keyword_filter(merged)
+    merged = add_estimated_page_counts(merged)
+    return merged
+
+
+def _batch_pages(pages: list[dict], batch_size: int) -> list[list[dict]]:
+    """페이지 번호 목록을 batch_size개씩 묶는다 (이미지 청크용 - 글자 수 대신 개수 기준)."""
+    return [pages[i:i + batch_size] for i in range(0, len(pages), batch_size)]
+
+
+def parse_toc_from_page_images(
+    pdf_path: str,
+    page_count: int,
+    total_pages: int | None = None,
+    batch_pages: int = 10,
+    max_retries: int = 2,
+) -> dict:
+    """
+    텍스트 레이어가 없는 PDF용: 목차 형식에 기대지 않고 AI가 페이지 이미지를
+    직접 읽어 구조를 판단하게 한다. parse_toc_from_full_text와 원리는 같고
+    (청크로 나눠 각각 호출 후 병합), 본문이 텍스트가 아니라 이미지라는 점만
+    다르다.
+
+    페이지 전체를 미리 렌더링해서 들고 있지 않고, 배치(batch_pages장)마다
+    그때그때 render_pages_as_images를 불러 렌더링한 뒤 전송하고 버린다 -
+    문서가 길면(수십~수백 페이지) 전체를 한 번에 이미지로 들고 있는 것만으로도
+    메모리를 꽤 쓰는데(특히 여유 메모리가 적은 환경에서는 렌더링 중 메모리
+    할당 자체가 실패할 수 있다), 이렇게 하면 항상 배치 하나 분량만큼만
+    메모리에 있는다.
+
+    각 이미지 앞에 "[p.N]" 텍스트 블록을 넣어 페이지 번호를 알려준다 - 이미지
+    자체에는 파일 안에 마커를 심을 수 없으므로, 같은 메시지 안에서 이미지
+    바로 앞에 그 이미지의 페이지 번호를 알리는 텍스트를 배치해 대신한다.
+    """
+    from pdf_extract import render_pages_as_images  # 지역 import: 순환 참조 방지
+
+    client = _get_client()
+    page_batches = _batch_pages(list(range(1, page_count + 1)), batch_pages)
+
+    all_chapters: list[dict] = []
+    order_offset = 0
+    for page_numbers in page_batches:
+        batch = render_pages_as_images(pdf_path, page_numbers=page_numbers)
+        page_range = f"{batch[0]['page']}~{batch[-1]['page']}"
+        prompt = FULL_TEXT_CHAPTER_PROMPT.format(page_range=page_range)
+
+        content = []
+        for p in batch:
+            content.append({"type": "text", "text": f"[p.{p['page']}]"})
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": p["media_type"], "data": p["data"]},
+            })
+        content.append({"type": "text", "text": prompt})
+
+        parsed_batch = None
+        last_error = None
+        for attempt in range(max_retries + 1):
+            response = client.messages.create(
+                model=MODEL_NAME,
+                max_tokens=16000,
+                messages=[{"role": "user", "content": content}],
+            )
+            raw_text = "".join(
+                block.text for block in response.content if getattr(block, "type", "") == "text"
+            )
+            try:
+                parsed_batch = safe_json_parse(raw_text)
+                break
+            except Exception as e:
+                last_error = e
+                continue
+
+        if parsed_batch is None:
+            raise RuntimeError(f"목차 추정 실패 (p.{page_range}, 재시도 {max_retries}회 소진): {last_error}")
+
+        for ch in parsed_batch.get("chapters", []):
+            ch["order"] = order_offset + ch.get("order", 0)
+            all_chapters.append(ch)
+        order_offset += 1000
+
+    merged = {"chapters": all_chapters}
+    merged = detect_page_order_anomalies(merged)
+    merged = compute_end_pages(merged, total_pages=total_pages)
+    merged = apply_non_content_keyword_filter(merged)
+    merged = add_estimated_page_counts(merged)
+    return merged
 
 
 def _call_vision_once(client: Anthropic, images: list[dict], prompt_text: str) -> str:
