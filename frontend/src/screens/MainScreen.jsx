@@ -479,6 +479,15 @@ export default function MainScreen({ onStartReplan }) {
     } catch {
       // 로그아웃 요청이 실패해도 로컬 로그인 상태는 지워서 화면은 로그인 화면으로 보낸다.
     }
+    // 스톱워치가 실행 중인 채로 로그아웃하면 running 상태가 localStorage에 남아서,
+    // 나중에 다시 로그인했을 때 loadStopwatch()가 "로그아웃해 있던 시간"까지
+    // 경과 시간으로 계산해 더해버린다 (로그아웃 중에도 타이머가 돈 것처럼 보이는 원인).
+    // 로그아웃 시점에 멈춰서 이 문제를 막는다.
+    try {
+      localStorage.removeItem(stopwatchStorageKey);
+    } catch {
+      // 무시
+    }
     localStorage.removeItem('userId');
     window.location.href = '/';
   };
