@@ -3,6 +3,7 @@
 React 프론트엔드와 연결하기 위한 FastAPI 서버.
 - 로컬 개발용. `uvicorn server:app --reload`로 실행한다.
 - 목차 파싱(사진 여러 장/PDF)과 학습 플랜 생성을 각각 엔드포인트로 노출한다.
+- ANTHROPIC_API_KEY는 코드/저장소가 아니라 서버 실행 환경(OS 환경변수)에 설정한다.
 """
 import base64
 import os
