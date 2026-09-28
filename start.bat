@@ -5,7 +5,8 @@ REM 실행 방법: 이 파일을 더블클릭하거나, cmd/PowerShell에서 sta
 set "DIR=%~dp0"
 
 REM 1) Backend (Python/uvicorn)
-start "Planit Backend" cmd /k "cd /d "%DIR%" && python -m uvicorn server:app --reload"
+REM --host 0.0.0.0: 안드로이드 실기기(같은 와이파이)에서도 PC IP로 접속할 수 있게 한다.
+start "Planit Backend" cmd /k "cd /d "%DIR%" && python -m uvicorn server:app --reload --host 0.0.0.0"
 
 REM 2) Checklist (Gradle)
 start "Planit Checklist" cmd /k "cd /d "%DIR%Planit-Web-Checklist-main" && gradlew.bat bootRun"
