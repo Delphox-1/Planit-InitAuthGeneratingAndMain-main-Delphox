@@ -84,7 +84,7 @@
 .hero {
   padding: 50px 40px 60px; /* ai 학습 플래너 나에게 ~ 상단 여백  */
   max-width: 640px;
-  padding-bottom: 200px;
+  padding-bottom: 400px;
 }
 
 .hero .eyebrow {
@@ -123,8 +123,9 @@
 }
 
 /* 기능 소개 카드 */
-.section {
-  padding: 40px;
+.section-inner {
+  max-width: 1200px; /* .cta-band와 같은 폭 */
+  margin: 0 auto;
 }
 
 .section h2 {
@@ -202,7 +203,7 @@
 /* CTA 밴드 */
 .cta-band {
   max-width: 1200px;
-  margin: 0 auto;
+  margin: 56px auto 0;
   text-align: center;
   padding: 52px 40px;
   background: linear-gradient(

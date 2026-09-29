@@ -70,17 +70,19 @@ async function getSessionMinutes(memberId, startDate, endDate) {
 
 // 특정 날짜 범위의 study_plan_item durationMinutes 합계(목표 분)
 async function getGoalMinutes(memberId, dateStrings) {
-  let total = 0;
-  for (const dateStr of dateStrings) {
-    const q = query(
-      collection(db, "study_plan_items"),
-      where("memberId", "==", memberId),
-      where("planDate", "==", dateStr)
-    );
-    const snap = await getDocs(q);
-    total += snap.docs.reduce((sum, d) => sum + (d.data().durationMinutes || 0), 0);
-  }
-  return total;
+  // 날짜마다 하나씩 기다리지 않고 한꺼번에 조회한다.
+  const totals = await Promise.all(
+    dateStrings.map(async (dateStr) => {
+      const q = query(
+        collection(db, "study_plan_items"),
+        where("memberId", "==", memberId),
+        where("planDate", "==", dateStr)
+      );
+      const snap = await getDocs(q);
+      return snap.docs.reduce((sum, d) => sum + (d.data().durationMinutes || 0), 0);
+    })
+  );
+  return totals.reduce((sum, t) => sum + t, 0);
 }
 
 function dateRange(start, days) {
@@ -103,28 +105,34 @@ async function getDailyAnalysis(memberId) {
   const dates = dateRange(weekStart, 7);
   const labels = ["월", "화", "수", "목", "금", "토", "일"];
 
-  const bars = [];
-  for (let i = 0; i < 7; i++) {
-    const dayStart = new Date(weekStart);
-    dayStart.setDate(weekStart.getDate() + i);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayStart.getDate() + 1);
-    const minutes = await getSessionMinutes(memberId, dayStart, dayEnd);
-    const isToday = dates[i] === todayString();
-    bars.push({ label: isToday ? `${labels[i]}(오늘)` : labels[i], minutes: Math.round(minutes), today: isToday });
-  }
-
-  const todayGoal = await getGoalMinutes(memberId, [todayString()]);
-  const todayActual = bars.find((b) => b.today)?.minutes || 0;
-  const todayRate = todayGoal > 0 ? Math.min(100, Math.round((todayActual / todayGoal) * 100)) : 0;
-
   // "나의 평균" = 최근 30일 하루 평균 학습시간
   const past30Start = new Date(now);
   past30Start.setDate(now.getDate() - 30);
-  const past30Minutes = await getSessionMinutes(memberId, past30Start, now);
-  const myAverage = Math.round(past30Minutes / 30);
 
-  const streakDays = await calculateStreakDays(memberId);
+  // 서로 관련 없는 조회는 순서대로 기다리지 않고 한꺼번에 보낸다.
+  const [barMinutes, todayGoal, past30Minutes, streakDays] = await Promise.all([
+    Promise.all(
+      dates.map((_, i) => {
+        const dayStart = new Date(weekStart);
+        dayStart.setDate(weekStart.getDate() + i);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayStart.getDate() + 1);
+        return getSessionMinutes(memberId, dayStart, dayEnd);
+      })
+    ),
+    getGoalMinutes(memberId, [todayString()]),
+    getSessionMinutes(memberId, past30Start, now),
+    calculateStreakDays(memberId),
+  ]);
+
+  const bars = barMinutes.map((minutes, i) => {
+    const isToday = dates[i] === todayString();
+    return { label: isToday ? `${labels[i]}(오늘)` : labels[i], minutes: Math.round(minutes), today: isToday };
+  });
+
+  const todayActual = bars.find((b) => b.today)?.minutes || 0;
+  const todayRate = todayGoal > 0 ? Math.min(100, Math.round((todayActual / todayGoal) * 100)) : 0;
+  const myAverage = Math.round(past30Minutes / 30);
 
   return {
     periodLabel: "오늘", goalLabel: "오늘 학습목표", actualLabel: "오늘 학습한 시간", rateLabel: "오늘 목표 달성률",
@@ -141,36 +149,53 @@ async function getDailyAnalysis(memberId) {
 async function getWeeklyAnalysis(memberId) {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  // "이번 달 1주차"의 시작을, 1일이 속한 주의 월요일로 정렬한다 (월~일 통일).
-  const firstWeekStart = mondayOf(monthStart);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1); // 다음 달 1일 (배타적 끝)
 
-  const bars = [];
-  for (let w = 0; w < 4; w++) {
-    const weekStart = new Date(firstWeekStart);
-    weekStart.setDate(firstWeekStart.getDate() + w * 7);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 7);
-    const minutes = await getSessionMinutes(memberId, weekStart, weekEnd);
-    const isThisWeek = now >= weekStart && now < weekEnd;
-    bars.push({ label: isThisWeek ? `${w + 1}주(이번 주)` : `${w + 1}주`, minutes: Math.round(minutes), today: isThisWeek });
+  // 이번 달을 막대 4개로 나눈다. 뒤에서부터(오늘이 있는 주부터) 거꾸로 월~일 7일씩 채우고,
+  // 남는 날짜는 전부 1주차로 몰아준다 - 그래서 1주차는 항상 "그 달 1일"부터 시작하고,
+  // 2~4주차는 항상 깨끗한 월~일 한 주(4주차는 달이 끝나면 그만큼만)가 된다.
+  // (지난주 데이터가 "이번 주" 막대에 섞여 들어가는 걸 막기 위해 뒤에서부터 계산한다.)
+  const week4Start = mondayOf(new Date(monthEnd.getTime() - 1)); // 그 달 마지막 날이 속한 주의 월요일
+  const weekRanges = [null, null, null, null];
+  for (let w = 3; w >= 1; w--) {
+    const start = new Date(week4Start);
+    start.setDate(week4Start.getDate() - (3 - w) * 7);
+    const end = w === 3 ? monthEnd : new Date(weekRanges[w + 1].start);
+    weekRanges[w] = { start, end };
   }
+  weekRanges[0] = { start: monthStart, end: weekRanges[1].start };
 
-  const thisWeekBar = bars.find((b) => b.today) || bars[bars.length - 1];
-
-  // 진짜 이번 주(월~일) 목표: 그 7일간 배정된 study_plan_items의 durationMinutes 합.
-  const thisWeekDates = dateRange(mondayOf(now), 7);
-  const weekGoal = await getGoalMinutes(memberId, thisWeekDates);
-  const weekRate = weekGoal > 0 ? Math.min(100, Math.round((thisWeekBar.minutes / weekGoal) * 100)) : 0;
-
-  // "지난달 주간 평균"
+  // "지난달 주간 평균"용 기간
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 1);
-  const lastMonthMinutes = await getSessionMinutes(memberId, lastMonthStart, lastMonthEnd);
+
+  // 이번 주(월~일) 실제 학습시간·목표는 막대(4주차는 길이가 다름)에서 고르지 않고 따로 조회한다.
+  const thisWeekStart = mondayOf(now);
+  const thisWeekEnd = new Date(thisWeekStart);
+  thisWeekEnd.setDate(thisWeekStart.getDate() + 7);
+
+  // 서로 관련 없는 조회는 순서대로 기다리지 않고 한꺼번에 보낸다.
+  const [barMinutes, weekGoal, lastMonthMinutes, thisWeekMinutes] = await Promise.all([
+    Promise.all(weekRanges.map(({ start, end }) => getSessionMinutes(memberId, start, end))),
+    // 이번 주(월~일) 목표: 그 7일간 배정된 study_plan_items의 durationMinutes 합.
+    getGoalMinutes(memberId, dateRange(thisWeekStart, 7)),
+    getSessionMinutes(memberId, lastMonthStart, lastMonthEnd),
+    getSessionMinutes(memberId, thisWeekStart, thisWeekEnd),
+  ]);
+
+  const bars = barMinutes.map((minutes, w) => ({
+    label: `${w + 1}주`,
+    minutes: Math.round(minutes),
+    today: now >= weekRanges[w].start && now < weekRanges[w].end,
+  }));
+
+  const thisWeekRounded = Math.round(thisWeekMinutes);
+  const weekRate = weekGoal > 0 ? Math.min(100, Math.round((thisWeekRounded / weekGoal) * 100)) : 0;
   const lastMonthWeeklyAvg = Math.round(lastMonthMinutes / 4);
 
   return {
     periodLabel: "이번 주", goalLabel: "주간 학습목표", actualLabel: "이번 주 학습한 시간", rateLabel: "이번 주 목표 달성률",
-    periodGoalMinutes: weekGoal, periodActualMinutes: thisWeekBar.minutes, periodRate: weekRate,
+    periodGoalMinutes: weekGoal, periodActualMinutes: thisWeekRounded, periodRate: weekRate,
     streakText: `이번 달 학습 현황`,
     comparisonLabel: "지난달 주간 평균", comparisonAvgMinutes: lastMonthWeeklyAvg,
     bars,
@@ -181,44 +206,55 @@ async function getWeeklyAnalysis(memberId) {
 // 전체 학습통계 데이터 조립
 // ---------------------------------------------------------------
 export async function getStudyStatsData(memberId) {
-  // 이름은 항상 users/{memberId} 문서에서 최신 값을 직접 읽는다
-  // (마이페이지에서 이름 수정하면 여기도 바로 반영되게).
-  const userSnap = await getDoc(doc(db, "users", memberId));
-  const memberName = userSnap.exists() ? (userSnap.data().name || "회원") : "회원";
-
+  // 서로 관련 없는 조회를 전부 한꺼번에 보낸다 (하나씩 기다리면 로딩이 길어진다).
   const [
-    totalHours, streakDays, radarMetrics, nextBadge, dailyAnalysis, weeklyAnalysis,
+    userSnap, totalHours, streakDays, radarMetrics, nextBadge, dailyAnalysis, weeklyAnalysis,
+    badgesSnap, badgeValues, todayItemsSnap,
   ] = await Promise.all([
+    // 이름은 항상 users/{memberId} 문서에서 최신 값을 직접 읽는다
+    // (마이페이지에서 이름 수정하면 여기도 바로 반영되게).
+    getDoc(doc(db, "users", memberId)),
     calculateTotalStudyHours(memberId),
     calculateStreakDays(memberId),
     getRadarMetrics(memberId),
     getClosestNextBadge(memberId),
     getDailyAnalysis(memberId),
     getWeeklyAnalysis(memberId),
+    // 뱃지 개수(멤버 문서 기준)
+    getDocs(collection(db, "members", memberId, "badges")),
+    // 뱃지별 currentValue 계산 (5개 병렬)
+    Promise.all(BADGE_DEFS.map((def) => BADGE_VALUE_CALCULATORS[def.key](memberId))),
+    // 오늘 할일
+    getDocs(query(
+      collection(db, "study_plan_items"),
+      where("memberId", "==", memberId),
+      where("planDate", "==", todayString())
+    )),
   ]);
 
-  // 뱃지 개수(멤버 문서 기준)
-  const badgesSnap = await getDocs(collection(db, "members", memberId, "badges"));
+  const memberName = userSnap.exists() ? (userSnap.data().name || "회원") : "회원";
   const badgeCount = badgesSnap.size;
 
-  // 뱃지별 currentValue 계산 (5개 병렬)
-  const badges = await Promise.all(
-    BADGE_DEFS.map(async (def) => ({
-      key: def.key,
-      label: def.label,
-      unit: def.unit,
-      tiers: def.tiers,
-      tierIcons: BADGE_TIER_ICONS[def.key],
-      currentValue: await BADGE_VALUE_CALCULATORS[def.key](memberId),
-    }))
-  );
+  // 이번 달에 획득(승급 포함)한 뱃지 키 목록 - earnedAt이 이번 달 1일 이후인 것
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const monthBadgeKeys = badgesSnap.docs
+    .filter((bd) => {
+      const earned = bd.data().earnedAt?.toDate?.();
+      return earned && earned >= monthStart;
+    })
+    .map((bd) => bd.id);
 
-  // 오늘 할일
-  const todayItemsSnap = await getDocs(query(
-    collection(db, "study_plan_items"),
-    where("memberId", "==", memberId),
-    where("planDate", "==", todayString())
-  ));
+  const badges = BADGE_DEFS.map((def, i) => ({
+    key: def.key,
+    label: def.label,
+    unit: def.unit,
+    tiers: def.tiers,
+    tierIcons: BADGE_TIER_ICONS[def.key],
+    currentValue: badgeValues[i],
+  }));
+
   const todayItems = todayItemsSnap.docs.map((d) => ({
     id: d.id,
     subject: d.data().subject,
@@ -233,6 +269,7 @@ export async function getStudyStatsData(memberId) {
       initial: memberName.slice(0, 1),
       totalHours: Math.round(totalHours * 10) / 10,
       badgeCount,
+      monthBadgeKeys,
       streakDays,
       weeklyAchievementRate: weeklyAnalysis.periodRate,
       nextBadge: nextBadge || { label: "모든 뱃지 최고 단계 달성!", progressPct: 100 },

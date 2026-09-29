@@ -29,12 +29,6 @@ const FEATURES = [
   },
 ];
 
-const TESTIMONIALS = [
-  { quote: '유저리뷰1', who: '학습자1' },
-  { quote: '유저리뷰2', who: '학습자2' },
-  { quote: '유저리뷰3', who: '학습자3' },
-];
-
 export default function LandingPage({ onNavigate }) {
   const goLogin = () => onNavigate(LOGIN_PATH);
   const goSignup = () => onNavigate(SIGNUP_PATH);
@@ -79,27 +73,18 @@ export default function LandingPage({ onNavigate }) {
       </section>
 
       <section className="section" id="feat">
-        <h2>이렇게 작동해요</h2>
-        <p>복잡한 세팅 없이, 세 가지만 알려주면 나머지는 AI가 계산합니다.</p>
-        <div className="feature-grid">
-          {FEATURES.map((f) => (
-            <div className="feature-card" key={f.title}>
-              <div className="tag">{f.tag}</div>
-              <h3>{f.title}</h3>
-              <p>{f.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="testimonial-grid">
-          {TESTIMONIALS.map((t) => (
-            <div key={t.who}>
-              <div>"{t.quote}"</div>
-              <div className="who">— {t.who}</div>
-            </div>
-          ))}
+        <div className="section-inner">
+          <h2>이렇게 작동해요</h2>
+          <p>복잡한 세팅 없이, 세 가지만 알려주면 나머지는 AI가 계산합니다.</p>
+          <div className="feature-grid">
+            {FEATURES.map((f) => (
+              <div className="feature-card" key={f.title}>
+                <div className="tag">{f.tag}</div>
+                <h3>{f.title}</h3>
+                <p>{f.desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 

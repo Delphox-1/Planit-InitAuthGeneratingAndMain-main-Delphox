@@ -275,6 +275,10 @@ export default function StudyStatsScreen() {
   const earnedBadges = d.badges.filter(
     (b) => !b.pending && b.currentValue >= b.tiers[0],
   );
+  // 이번 달에 새로 획득한 뱃지만 (사이드바 미니 목록용)
+  const monthBadges = earnedBadges.filter((b) =>
+    d.profile.monthBadgeKeys.includes(b.key),
+  );
   const todayGoal = d.analysis.daily;
 
   return (
@@ -392,10 +396,10 @@ export default function StudyStatsScreen() {
           </div>
 
           <div className="ps-badges-label">
-            이번 달에 {earnedBadges.length}개의 뱃지를 획득했어요!
+            이번 달에 {monthBadges.length}개의 뱃지를 획득했어요!
           </div>
           <div className="ps-badges-row">
-            {earnedBadges.slice(0, 3).map((b) => (
+            {monthBadges.slice(0, 3).map((b) => (
               <div className="b" key={b.key}>
                 <img src={b.tierIcons[getAchievedTier(b) - 1]} alt={b.label} />
               </div>

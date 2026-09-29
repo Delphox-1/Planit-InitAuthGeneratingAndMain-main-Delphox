@@ -8,6 +8,7 @@ import {
   collection, collectionGroup, query, where, getDocs,
   doc, setDoc, getDoc, Timestamp,
 } from "firebase/firestore";
+import { studyStatsRef } from "./study-session";
 
 // 뱃지 정의 (mock-data.js의 badges 배열과 tiers/label 동일하게 유지)
 export const BADGE_DEFS = [
@@ -49,11 +50,12 @@ async function calculateStreakDays(memberId) {
 async function calculateQuizCorrectCount(memberId) {
   // ⚠️ quizzes 컬렉션은 memberId가 아니라 uid 필드를 씀
   const quizzesSnap = await getDocs(query(collection(db, "quizzes"), where("uid", "==", memberId)));
+  // 퀴즈마다 answers를 하나씩 기다리지 않고 한꺼번에 조회한다.
+  const answerSnaps = await Promise.all(
+    quizzesSnap.docs.map((quizDoc) => getDocs(collection(db, "quizzes", quizDoc.id, "answers")))
+  );
   let correct = 0;
-  for (const quizDoc of quizzesSnap.docs) {
-    const answersSnap = await getDocs(collection(db, "quizzes", quizDoc.id, "answers"));
-    answersSnap.forEach((a) => { if (a.data().correct) correct++; });
-  }
+  answerSnaps.forEach((snap) => snap.forEach((a) => { if (a.data().correct) correct++; }));
   return correct;
 }
 
@@ -76,10 +78,43 @@ async function calculatePerfectDayCount(memberId) {
   return Object.values(byDate).filter((rates) => rates.every((r) => r === 100)).length;
 }
 
+// 누적 학습시간(시간 단위).
+// 기록이 쌓일수록 느려지지 않도록, 저장할 때마다 늘려 둔 누적값(members/{id}/stats/study)을
+// 읽는다 (저장하는 쪽: study-session.js). 화면 하나를 여는 동안 여러 곳에서 동시에 부르므로,
+// 이미 조회 중이면 그 결과를 같이 쓴다.
+const pendingTotalSeconds = new Map();
+
 async function calculateTotalStudyHours(memberId) {
-  const snap = await getDocs(query(collection(db, "study_sessions"), where("memberId", "==", memberId)));
-  const totalSeconds = snap.docs.reduce((sum, d) => sum + (d.data().durationSeconds || 0), 0);
-  return totalSeconds / 3600;
+  if (!pendingTotalSeconds.has(memberId)) {
+    const p = loadTotalStudySeconds(memberId).finally(() => pendingTotalSeconds.delete(memberId));
+    pendingTotalSeconds.set(memberId, p);
+  }
+  return (await pendingTotalSeconds.get(memberId)) / 3600;
+}
+
+async function loadTotalStudySeconds(memberId) {
+  const ref = studyStatsRef(memberId);
+
+  let snap = null;
+  try {
+    snap = await getDoc(ref);
+  } catch {
+    // 누적값을 못 읽어도 통계가 멈추지 않도록 아래에서 전체를 합산한다.
+  }
+  if (snap && snap.exists() && snap.data().backfilled === true) {
+    return snap.data().totalSeconds || 0;
+  }
+
+  // 아직 누적값이 없는 경우(이 기능 이전에 쌓인 기록 포함): 전체를 한 번만 합산해서 저장해 둔다.
+  // 다음부터는 위처럼 저장된 값을 읽는다.
+  const sessions = await getDocs(query(collection(db, "study_sessions"), where("memberId", "==", memberId)));
+  const total = sessions.docs.reduce((sum, d) => sum + (d.data().durationSeconds || 0), 0);
+  try {
+    await setDoc(ref, { totalSeconds: total, backfilled: true, updatedAt: Timestamp.now() });
+  } catch {
+    // 저장에 실패해도 이번 값은 정확하므로 그대로 돌려준다 (다음에 다시 시도).
+  }
+  return total;
 }
 
 const VALUE_CALCULATORS = {
@@ -100,29 +135,31 @@ function getAchievedTier(currentValue, tiers) {
 // 반환값: 이번 호출에서 "새로 승급된" 뱃지 목록 (알림 등에 활용 가능)
 // ---------------------------------------------------------------
 export async function checkAndAwardBadges(memberId) {
-  const newlyAwarded = [];
+  // 5개 뱃지를 하나씩 기다리지 않고 동시에 판정한다 (뱃지마다 다른 문서라 서로 영향 없음).
+  const results = await Promise.all(
+    BADGE_DEFS.map(async (def) => {
+      const currentValue = await VALUE_CALCULATORS[def.key](memberId);
+      const tierNum = getAchievedTier(currentValue, def.tiers);
+      if (tierNum === 0) return null;
 
-  for (const def of BADGE_DEFS) {
-    const currentValue = await VALUE_CALCULATORS[def.key](memberId);
-    const tierNum = getAchievedTier(currentValue, def.tiers);
-    if (tierNum === 0) continue;
+      const badgeRef = doc(db, "members", memberId, "badges", def.key);
+      const existing = await getDoc(badgeRef);
+      const existingTier = existing.exists() ? existing.data().tier : 0;
 
-    const badgeRef = doc(db, "members", memberId, "badges", def.key);
-    const existing = await getDoc(badgeRef);
-    const existingTier = existing.exists() ? existing.data().tier : 0;
+      if (tierNum > existingTier) {
+        await setDoc(badgeRef, {
+          badgeKey: def.key,
+          tier: tierNum,
+          currentValue,
+          earnedAt: Timestamp.now(),
+        });
+        return { ...def, tier: tierNum };
+      }
+      return null;
+    })
+  );
 
-    if (tierNum > existingTier) {
-      await setDoc(badgeRef, {
-        badgeKey: def.key,
-        tier: tierNum,
-        currentValue,
-        earnedAt: Timestamp.now(),
-      });
-      newlyAwarded.push({ ...def, tier: tierNum });
-    }
-  }
-
-  return newlyAwarded;
+  return results.filter(Boolean);
 }
 
 // ---------------------------------------------------------------
@@ -155,8 +192,14 @@ export async function getClosestNextBadge(memberId) {
   let closest = null;
   let closestProgress = -1;
 
-  for (const def of BADGE_DEFS) {
-    const currentValue = await VALUE_CALCULATORS[def.key](memberId);
+  // 5개 뱃지의 현재 값을 한꺼번에 계산해 둔다.
+  const values = await Promise.all(
+    BADGE_DEFS.map((def) => VALUE_CALCULATORS[def.key](memberId))
+  );
+
+  for (let i = 0; i < BADGE_DEFS.length; i++) {
+    const def = BADGE_DEFS[i];
+    const currentValue = values[i];
     const tierNum = getAchievedTier(currentValue, def.tiers);
     if (tierNum === 5) continue; // 이미 최고 단계
 

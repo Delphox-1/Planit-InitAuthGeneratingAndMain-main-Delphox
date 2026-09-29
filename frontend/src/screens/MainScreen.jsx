@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { addDoc, collection, Timestamp } from 'firebase/firestore';
-import { db } from '../firebase';
+import { saveStudySession } from '../lib/study-session';
 import { theme } from '../theme';
 import logo from '../assets/logo.png';
 
@@ -418,11 +417,8 @@ export default function MainScreen({ onStartReplan }) {
     if (stopwatchSeconds <= 0) return;
     const startedAt =
       stopwatchStartedAt ?? new Date(Date.now() - stopwatchSeconds * 1000);
-    await addDoc(collection(db, 'study_sessions'), {
-      memberId: userId,
-      startedAt: Timestamp.fromDate(startedAt),
-      durationSeconds: stopwatchSeconds,
-    });
+    // 학습 기록 저장 + 누적 학습시간 증가를 한 번에 처리한다 (lib/study-session.js).
+    await saveStudySession(userId, startedAt, stopwatchSeconds);
     setStopwatchRunning(false);
     setStopwatchSeconds(0);
     setStopwatchStartedAt(null);
