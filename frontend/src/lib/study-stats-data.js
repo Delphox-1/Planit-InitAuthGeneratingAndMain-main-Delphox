@@ -151,36 +151,27 @@ async function getWeeklyAnalysis(memberId) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1); // 다음 달 1일 (배타적 끝)
 
-  // 이번 달을 막대 4개로 나눈다. 뒤에서부터(오늘이 있는 주부터) 거꾸로 월~일 7일씩 채우고,
-  // 남는 날짜는 전부 1주차로 몰아준다 - 그래서 1주차는 항상 "그 달 1일"부터 시작하고,
-  // 2~4주차는 항상 깨끗한 월~일 한 주(4주차는 달이 끝나면 그만큼만)가 된다.
-  // (지난주 데이터가 "이번 주" 막대에 섞여 들어가는 걸 막기 위해 뒤에서부터 계산한다.)
-  const week4Start = mondayOf(new Date(monthEnd.getTime() - 1)); // 그 달 마지막 날이 속한 주의 월요일
-  const weekRanges = [null, null, null, null];
-  for (let w = 3; w >= 1; w--) {
-    const start = new Date(week4Start);
-    start.setDate(week4Start.getDate() - (3 - w) * 7);
-    const end = w === 3 ? monthEnd : new Date(weekRanges[w + 1].start);
-    weekRanges[w] = { start, end };
+  // 이번 달을 실제 월~일 7일짜리 주 단위로 나눈다. 막대 개수를 고정하지 않고,
+  // 그 달이 실제로 걸치는 주 수만큼(보통 4~6개) 만든다 - 그래서 "1주"라고 적힌 막대가
+  // 실제로는 13일치인 것 같은 왜곡이 없다. 각 막대는 항상 정확히 7일이며, 달의 양 끝
+  // 며칠은 이웃 달의 날짜를 포함할 수 있다(달력에서 흔히 보이는 방식과 동일).
+  const weekRanges = [];
+  for (let cursor = mondayOf(monthStart); cursor < monthEnd; ) {
+    const start = new Date(cursor);
+    const end = new Date(cursor);
+    end.setDate(end.getDate() + 7);
+    weekRanges.push({ start, end });
+    cursor = end;
   }
-  weekRanges[0] = { start: monthStart, end: weekRanges[1].start };
 
   // "지난달 주간 평균"용 기간
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  // 이번 주(월~일) 실제 학습시간·목표는 막대(4주차는 길이가 다름)에서 고르지 않고 따로 조회한다.
-  const thisWeekStart = mondayOf(now);
-  const thisWeekEnd = new Date(thisWeekStart);
-  thisWeekEnd.setDate(thisWeekStart.getDate() + 7);
-
   // 서로 관련 없는 조회는 순서대로 기다리지 않고 한꺼번에 보낸다.
-  const [barMinutes, weekGoal, lastMonthMinutes, thisWeekMinutes] = await Promise.all([
+  const [barMinutes, lastMonthMinutes] = await Promise.all([
     Promise.all(weekRanges.map(({ start, end }) => getSessionMinutes(memberId, start, end))),
-    // 이번 주(월~일) 목표: 그 7일간 배정된 study_plan_items의 durationMinutes 합.
-    getGoalMinutes(memberId, dateRange(thisWeekStart, 7)),
     getSessionMinutes(memberId, lastMonthStart, lastMonthEnd),
-    getSessionMinutes(memberId, thisWeekStart, thisWeekEnd),
   ]);
 
   const bars = barMinutes.map((minutes, w) => ({
@@ -189,13 +180,18 @@ async function getWeeklyAnalysis(memberId) {
     today: now >= weekRanges[w].start && now < weekRanges[w].end,
   }));
 
-  const thisWeekRounded = Math.round(thisWeekMinutes);
-  const weekRate = weekGoal > 0 ? Math.min(100, Math.round((thisWeekRounded / weekGoal) * 100)) : 0;
+  // "오늘"이 있는 막대는 항상 실제 이번 주(월~일)와 정확히 같은 7일이라,
+  // 별도로 다시 조회하지 않고 이 막대 값을 그대로 쓴다.
+  const thisWeekIndex = bars.findIndex((b) => b.today);
+  const thisWeekBar = bars[thisWeekIndex];
+  const thisWeekRange = weekRanges[thisWeekIndex];
+  const weekGoal = await getGoalMinutes(memberId, dateRange(thisWeekRange.start, 7));
+  const weekRate = weekGoal > 0 ? Math.min(100, Math.round((thisWeekBar.minutes / weekGoal) * 100)) : 0;
   const lastMonthWeeklyAvg = Math.round(lastMonthMinutes / 4);
 
   return {
     periodLabel: "이번 주", goalLabel: "주간 학습목표", actualLabel: "이번 주 학습한 시간", rateLabel: "이번 주 목표 달성률",
-    periodGoalMinutes: weekGoal, periodActualMinutes: thisWeekRounded, periodRate: weekRate,
+    periodGoalMinutes: weekGoal, periodActualMinutes: thisWeekBar.minutes, periodRate: weekRate,
     streakText: `이번 달 학습 현황`,
     comparisonLabel: "지난달 주간 평균", comparisonAvgMinutes: lastMonthWeeklyAvg,
     bars,
