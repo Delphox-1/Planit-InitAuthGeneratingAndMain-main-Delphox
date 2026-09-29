@@ -2,6 +2,7 @@ package com.planit.auth;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
@@ -14,6 +15,9 @@ import org.springframework.web.bind.annotation.RestController;
 import com.google.cloud.firestore.DocumentReference;
 import com.google.cloud.firestore.FieldValue;
 import com.google.cloud.firestore.Firestore;
+import com.google.cloud.firestore.Query;
+import com.google.cloud.firestore.QueryDocumentSnapshot;
+import com.google.cloud.firestore.WriteBatch;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.auth.AuthErrorCode;
 import com.google.firebase.auth.FirebaseAuth;
@@ -141,11 +145,11 @@ public class AuthController {
 
 	/**
 	 * 회원 탈퇴. 로그인 세션 필요.
-	 *  1) 이 사용자의 Firestore 데이터(퀴즈 기록) 삭제
+	 *  1) 이 사용자의 Firestore 데이터(퀴즈 기록, 학습 플랜/항목/마무리 기록, 공부 세션, 배지) 삭제
 	 *  2) Firestore users/{uid} 프로필 문서 삭제 (하위 컬렉션까지)
 	 *  3) Firebase Authentication 계정 삭제 (Admin SDK)
 	 *  4) 세션 무효화
-	 * 되돌릴 수 없다.
+	 * 데이터 삭제가 중간에 실패하면 계정은 남겨서 다시 탈퇴를 시도할 수 있게 한다. 되돌릴 수 없다.
 	 */
 	@PostMapping("/withdraw")
 	public Map<String, String> withdraw(HttpSession session) throws Exception {
@@ -156,12 +160,43 @@ public class AuthController {
 		}
 
 		quizService.deleteAllForUser(uid);
+		deleteStudyData(uid);
 		deleteUserDocument(uid);
 		FirebaseAuth.getInstance().deleteUser(uid);
 		session.invalidate();
 
 		log.info("[withdraw] uid={} 탈퇴 완료", uid);
 		return Map.of("message", "탈퇴가 완료되었습니다");
+	}
+
+	/**
+	 * 학습 관련 데이터 삭제. memberId·studyPlanId 모두 uid 기반이다
+	 * (checklist_sync.py member_id_for_user / study_plan_id_for_user 와 같은 규칙).
+	 */
+	private void deleteStudyData(String uid) throws Exception {
+		Firestore db = FirestoreClient.getFirestore();
+		String studyPlanId = "plan-" + uid;
+
+		int items = deleteAll(db.collection("study_plan_items").whereEqualTo("memberId", uid));
+		int completions = deleteAll(db.collection("study_day_completions").whereEqualTo("studyPlanId", studyPlanId));
+		int sessions = deleteAll(db.collection("study_sessions").whereEqualTo("memberId", uid));
+		db.recursiveDelete(db.collection("study_plans").document(studyPlanId)).get();
+		db.recursiveDelete(db.collection("members").document(uid)).get();
+
+		log.info("[withdraw] uid={} 학습 데이터 삭제 완료 (항목 {}건, 마무리 기록 {}건, 공부 세션 {}건, 플랜·배지)",
+			uid, items, completions, sessions);
+	}
+
+	private int deleteAll(Query query) throws Exception {
+		List<QueryDocumentSnapshot> docs = query.get().get().getDocuments();
+		for (int i = 0; i < docs.size(); i += 500) {
+			WriteBatch batch = query.getFirestore().batch();
+			for (QueryDocumentSnapshot doc : docs.subList(i, Math.min(i + 500, docs.size()))) {
+				batch.delete(doc.getReference());
+			}
+			batch.commit().get();
+		}
+		return docs.size();
 	}
 
 	/** 탈퇴 시 Firestore 의 users/{uid} 문서와 그 하위 컬렉션을 통째로 삭제한다. */

@@ -12,6 +12,15 @@ import "./AuthPage.css";
 
 const AUTH_API_BASE = "http://localhost:8081";
 
+// 회원가입 입력값 규칙
+// - 이름: 한글/영문만 (단어 사이 공백 1칸은 허용, 예: "Gil Dong")
+// - 이메일: 아이디 부분은 영문/숫자와 . _ 만 (첫 글자·끝 글자는 영문/숫자,
+//   . _ 연속 사용 불가). @ / ~ - 같은 특수문자는 불가. 도메인은 example.com 형태.
+// - 비밀번호: 한글/영문/숫자/특수문자만 (공백 불가)
+const NAME_RE = /^[가-힣a-zA-Z]+( [가-힣a-zA-Z]+)*$/;
+const EMAIL_RE = /^[a-zA-Z0-9]+([._][a-zA-Z0-9]+)*@[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*(\.[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*)*\.[a-zA-Z]{2,}$/;
+const PASSWORD_RE = /^[가-힣a-zA-Z0-9!-/:-@[-`{-~]+$/;
+
 function authErrorMessage(err) {
   switch (err && err.code) {
     case "auth/invalid-email":
@@ -42,8 +51,13 @@ export default function SignupPage({ onGoLogin }) {
     setEmailMsg("");
 
     if (!name.trim()) return setMsg("이름을 입력해 주세요.");
+    if (!NAME_RE.test(name.trim())) return setMsg("이름은 한글 또는 영문만 입력할 수 있습니다.");
     if (!email.trim()) return setEmailMsg("이메일을 입력해 주세요.");
+    if (!EMAIL_RE.test(email.trim()))
+      return setEmailMsg("이메일 형식이 올바르지 않습니다. (예: user@example.com, 아이디에는 영문·숫자·. _ 만 사용)");
     if (password.length < 6) return setMsg("비밀번호는 6자 이상이어야 합니다.");
+    if (!PASSWORD_RE.test(password))
+      return setMsg("비밀번호는 한글, 영문, 숫자, 특수문자만 사용할 수 있습니다. (공백 불가)");
     if (password !== password2) return setMsg("비밀번호가 일치하지 않습니다.");
 
     setLoading(true);
@@ -85,7 +99,7 @@ export default function SignupPage({ onGoLogin }) {
       <div className="auth-card">
         <p className="auth-sub">1분이면 충분해요. 가입하면 로그인 화면으로 이동합니다.</p>
 
-        <form onSubmit={handleSignup}>
+        <form onSubmit={handleSignup} noValidate>
           <div className="auth-field">
             <label htmlFor="su-name">이름</label>
             <input

@@ -11,17 +11,16 @@ import { updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 // "학습 통계"(StudyStatsScreen.jsx)와는 완전히 별개 화면.
 // 이름만 수정 가능, 이메일은 읽기 전용.
 //
-// AUTH_API_BASE: 로그인 백엔드(김동호) 포트. 8080.
+// AUTH_API_BASE: 로그인 백엔드(김동호) 포트. 8081.
+// (탈퇴/로그아웃 둘 다 이 백엔드의 /api/auth/* 라우트를 쓴다. 8080은
+//  체크리스트 백엔드라 /api/auth 라우트가 없어 8080으로 보내면 404가 난다.)
 //
 // 프로필 사진 업로드 기능은 제거했다 (Firebase Storage는 유료 Blaze 요금제
 // 전환이 필요한데 프로젝트 소유자만 할 수 있고, 자체 서버 저장 방식은 같은
 // 와이파이에서만 동작하는 한계가 있어서 - 팀 판단으로 기능 자체를 뺐다).
 // 아바타는 이름 첫 글자만 보여준다.
 // =========================================================================
-const AUTH_API_BASE = 'http://localhost:8080';
-// 로그아웃은 다른 화면(MainScreen.jsx, StudyStatsScreen.jsx)과 동일하게
-// 8081번 포트를 쓴다 - 탈퇴(AUTH_API_BASE)와 실제로 다른 값이라 따로 뒀다.
-const LOGOUT_API_BASE = 'http://localhost:8081';
+const AUTH_API_BASE = 'http://localhost:8081';
 
 // MainScreen.jsx/StudyStatsScreen.jsx와 동일한 상단바 + 햄버거 메뉴
 // (fallback 색상은 StudyStatsScreen.css :root 값과 동일 - 이 화면 CSS엔
@@ -200,10 +199,14 @@ export default function MyPageScreen() {
     )
       return;
     try {
-      await fetch(`${AUTH_API_BASE}/api/auth/withdraw`, {
+      const res = await fetch(`${AUTH_API_BASE}/api/auth/withdraw`, {
         method: 'POST',
         credentials: 'include',
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error((body && body.message) || `요청 실패 (${res.status})`);
+      }
       localStorage.removeItem('userId');
       window.location.href = '/';
     } catch (e) {
@@ -217,7 +220,7 @@ export default function MyPageScreen() {
   // MainScreen.jsx/StudyStatsScreen.jsx의 로그아웃과 동일한 로직
   const handleLogout = async () => {
     try {
-      await fetch(`${LOGOUT_API_BASE}/api/auth/logout`, {
+      await fetch(`${AUTH_API_BASE}/api/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
