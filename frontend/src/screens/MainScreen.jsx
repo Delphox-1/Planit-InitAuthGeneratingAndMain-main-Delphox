@@ -291,8 +291,21 @@ export default function MainScreen({ onStartReplan }) {
 
   useEffect(() => {
     if (!stopwatchRunning) return;
-    const id = setInterval(() => setStopwatchSeconds((s) => s + 1), 1000);
-    return () => clearInterval(id);
+    // setInterval로 1씩 더하면 탭이 백그라운드일 때 브라우저가 타이머를 늦추거나 멈춰서
+    // 시간이 건너뛴다. 시작 시점의 (초, 실제 시각)을 기준으로 매번 다시 계산한다.
+    const baseSeconds = stopwatchSeconds;
+    const startMs = Date.now();
+    const tick = () =>
+      setStopwatchSeconds(
+        baseSeconds + Math.floor((Date.now() - startMs) / 1000),
+      );
+    const id = setInterval(tick, 250);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', tick);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopwatchRunning]);
 
   // 값이 바뀔 때마다 바로 localStorage에 백업 - 여기 있는 값이 실제 진행 상태의
