@@ -16,7 +16,7 @@ const AUTH_API_BASE = "http://localhost:8081";
 // - 이름: 한글/영문만 (단어 사이 공백 1칸은 허용, 예: "Gil Dong")
 // - 이메일: 아이디 부분은 영문/숫자와 . _ 만 (첫 글자·끝 글자는 영문/숫자,
 //   . _ 연속 사용 불가). @ / ~ - 같은 특수문자는 불가. 도메인은 example.com 형태.
-// - 비밀번호: 한글/영문/숫자/특수문자만 (공백 불가)
+// - 비밀번호: 6~20자, 한글/영문/숫자/특수문자만 (공백 불가)
 const NAME_RE = /^[가-힣a-zA-Z]+( [가-힣a-zA-Z]+)*$/;
 const EMAIL_RE = /^[a-zA-Z0-9]+([._][a-zA-Z0-9]+)*@[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*(\.[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*)*\.[a-zA-Z]{2,}$/;
 const PASSWORD_RE = /^[가-힣a-zA-Z0-9!-/:-@[-`{-~]+$/;
@@ -56,6 +56,7 @@ export default function SignupPage({ onGoLogin }) {
     if (!EMAIL_RE.test(email.trim()))
       return setEmailMsg("이메일 형식이 올바르지 않습니다. (예: user@example.com, 아이디에는 영문·숫자·. _ 만 사용)");
     if (password.length < 6) return setMsg("비밀번호는 6자 이상이어야 합니다.");
+    if (password.length > 20) return setMsg("비밀번호는 20자 이하여야 합니다.");
     if (!PASSWORD_RE.test(password))
       return setMsg("비밀번호는 한글, 영문, 숫자, 특수문자만 사용할 수 있습니다. (공백 불가)");
     if (password !== password2) return setMsg("비밀번호가 일치하지 않습니다.");
@@ -129,7 +130,7 @@ export default function SignupPage({ onGoLogin }) {
               id="su-password"
               type="password"
               autoComplete="new-password"
-              placeholder="6자 이상"
+              placeholder="6~20자"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />

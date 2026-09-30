@@ -14,7 +14,7 @@ Firebase Admin SDK 로 Firestore 를 다룹니다. 브라우저는 Firestore 를
 | REQ-A-001 | 회원가입 입력 (이름/이메일/비번/비번확인) | `frontend/login.html` (회원가입 뷰) |
 | REQ-A-002 | 비밀번호 확인 일치 검증 | `frontend/login.html` (`su-btn` 핸들러) |
 | REQ-A-003 | 이메일 형식 검증 | Firebase Auth (`auth/invalid-email`) |
-| REQ-A-004 | 비밀번호 길이 검증 (6자 이상) | `frontend/login.html` (전송 전 검사, Firebase 자체 최소 6자) |
+| REQ-A-004 | 비밀번호 길이 검증 (6자 이상 20자 이하) | `frontend/login.html` (전송 전 검사, Firebase 자체 최소 6자) |
 | REQ-A-005 | 이메일 중복 검사 | `frontend/login.html` → `POST /api/auth/email-available` → `AuthController#emailAvailable` (Admin SDK `getUserByEmail`). `createUserWithEmailAndPassword` 의 `auth/email-already-in-use` 는 2차 방어 |
 | REQ-A-006 | 이메일 인증 | Firebase Auth 이메일 인증 기능 (콘솔 설정) |
 | REQ-A-007 | 회원가입 완료 후 로그인 화면 이동 | `frontend/login.html` (가입 후 `signOut` → 로그인 뷰) |

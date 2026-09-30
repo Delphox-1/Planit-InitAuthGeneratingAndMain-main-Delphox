@@ -470,6 +470,13 @@ export default function MainScreen({ onStartReplan }) {
   };
 
   const handleLogout = async () => {
+    // 지금까지 잰 스톱워치 시간은 로그아웃 전에 학습 기록으로 저장한다
+    // (저장 후 스톱워치 상태는 recordStudySession이 0으로 초기화한다).
+    try {
+      await recordStudySession();
+    } catch {
+      // 저장에 실패해도 로그아웃은 진행한다. 아래에서 스톱워치 백업은 지운다.
+    }
     try {
       await fetch(`${AUTH_API_BASE}/api/auth/logout`, {
         method: 'POST',
@@ -481,7 +488,7 @@ export default function MainScreen({ onStartReplan }) {
     // 스톱워치가 실행 중인 채로 로그아웃하면 running 상태가 localStorage에 남아서,
     // 나중에 다시 로그인했을 때 loadStopwatch()가 "로그아웃해 있던 시간"까지
     // 경과 시간으로 계산해 더해버린다 (로그아웃 중에도 타이머가 돈 것처럼 보이는 원인).
-    // 로그아웃 시점에 멈춰서 이 문제를 막는다.
+    // 위에서 시간을 저장한 뒤 백업을 지워서 이 문제를 막는다.
     try {
       localStorage.removeItem(stopwatchStorageKey);
     } catch {

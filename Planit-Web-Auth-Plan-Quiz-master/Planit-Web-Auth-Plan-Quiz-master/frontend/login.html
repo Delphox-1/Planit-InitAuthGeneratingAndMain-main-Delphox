@@ -65,7 +65,7 @@
       </div>
       <div class="field">
         <label for="su-password">비밀번호</label>
-        <input id="su-password" type="password" autocomplete="new-password" placeholder="6자 이상" />
+        <input id="su-password" type="password" autocomplete="new-password" placeholder="6~20자" />
       </div>
       <div class="field">
         <label for="su-password2">비밀번호 확인</label>
@@ -177,6 +177,7 @@
       if (!name) { showMsg($('su-msg'), '이름을 입력해 주세요.'); return; }
       if (!email) { showMsg($('su-email-msg'), '이메일을 입력해 주세요.'); return; }
       if (pw.length < 6) { showMsg($('su-msg'), '비밀번호는 6자 이상이어야 합니다.'); return; }
+      if (pw.length > 20) { showMsg($('su-msg'), '비밀번호는 20자 이하여야 합니다.'); return; }
       if (pw !== pw2) { showMsg($('su-msg'), '비밀번호가 일치하지 않습니다.'); return; }
 
       var btn = $('su-btn');

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './StudyStatsScreen.css';
 import { checkAndAwardBadges } from '../lib/badgeChecker';
 import { getStudyStatsData } from '../lib/study-stats-data';
+import { saveStopwatchAndClear } from '../lib/study-session';
 import logo from '../assets/logo.png';
 
 // =========================================================================
@@ -194,6 +195,7 @@ export default function StudyStatsScreen() {
 
   // MainScreen.jsx의 handleLogout과 동일한 로직
   const handleLogout = async () => {
+    await saveStopwatchAndClear(localStorage.getItem('userId') || 'guest');
     try {
       await fetch('http://localhost:8081/api/auth/logout', {
         method: 'POST',

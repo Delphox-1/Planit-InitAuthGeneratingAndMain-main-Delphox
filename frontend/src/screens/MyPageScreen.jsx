@@ -5,6 +5,7 @@ import { auth } from '../firebase';
 import { db } from '../firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { updateProfile, sendPasswordResetEmail } from 'firebase/auth';
+import { saveStopwatchAndClear } from '../lib/study-session';
 
 // =========================================================================
 // 회원정보 전용 마이페이지 (mypage_mockup.html을 React로 옮긴 버전).
@@ -219,6 +220,7 @@ export default function MyPageScreen() {
 
   // MainScreen.jsx/StudyStatsScreen.jsx의 로그아웃과 동일한 로직
   const handleLogout = async () => {
+    await saveStopwatchAndClear(localStorage.getItem('userId') || 'guest');
     try {
       await fetch(`${AUTH_API_BASE}/api/auth/logout`, {
         method: 'POST',

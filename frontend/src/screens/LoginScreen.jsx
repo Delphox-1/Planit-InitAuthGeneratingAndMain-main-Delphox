@@ -127,6 +127,7 @@ export default function LoginScreen({ onLoggedIn }) {
     if (!name.trim()) return setError("이름을 입력해 주세요.");
     if (!email.trim()) return setError("이메일을 입력해 주세요.");
     if (password.length < 6) return setError("비밀번호는 6자 이상이어야 합니다.");
+    if (password.length > 20) return setError("비밀번호는 20자 이하여야 합니다.");
     if (password !== password2) return setError("비밀번호가 일치하지 않습니다.");
 
     setLoading(true);

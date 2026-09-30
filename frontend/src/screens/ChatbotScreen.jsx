@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { theme } from '../theme';
 import logo from '../assets/logo.png';
+import { saveStopwatchAndClear } from '../lib/study-session';
 
 // MainScreen.jsx/MyPageScreen.jsx/StudyStatsScreen.jsx와 같은 백엔드(파이썬,
 // 8000번 포트). 챗봇 엔드포인트(server.py의 POST /chat)도 여기서 같이 뜬다.
@@ -289,6 +290,7 @@ export default function ChatbotScreen() {
   }, [messages]);
 
   const handleLogout = async () => {
+    await saveStopwatchAndClear(userId);
     try {
       await fetch(`${AUTH_API_BASE}/api/auth/logout`, {
         method: 'POST',
