@@ -943,7 +943,7 @@
   <div class="quiz-wrap">
     <h2>오늘의 퀴즈</h2>
     <div class="lead">
-      study_plan.json 의 <b>1일차</b> 학습 범위로 4지선다 3문제(쉬운 문제 2 + 응용 1)를 만듭니다.<br>
+      study_plan.json 의 <b>1일차</b> 학습 범위로 4지선다 문제를 항목마다 2문제(쉬운 문제 1 + 응용 1)씩 만듭니다.<br>
       아래 오늘의 일과를 확인하고 '퀴즈 시작'을 누르세요. (로그인·학습 계획 없이 동작 / 결과는 저장되지 않음)
     </div>
 
@@ -964,10 +964,10 @@
     <!-- 시작하면 문제 카드들이 여기에 채워진다 -->
     <div id="quiz-questions"></div>
 
-    <!-- 3문제를 모두 제출하면 나타나는 결과 요약 (REQ-Q-006) -->
+    <!-- 문제를 모두 제출하면 나타나는 결과 요약 (REQ-Q-006) -->
     <div class="quiz-summary" id="quiz-summary">
       <div class="score" id="quiz-score">–</div>
-      <div class="score-label" id="quiz-score-label">3문제 중 정답 수</div>
+      <div class="score-label" id="quiz-score-label">문제 중 정답 수</div>
     </div>
   </div>
 </section>
@@ -1147,7 +1147,7 @@
   }
 
   /* ===== 퀴즈봇 (REQ-Q-001 ~ REQ-Q-006) / 화면 QZ-001 =====
-     흐름: 퀴즈 시작(start) → 문제별 제출(submit)로 그 자리에서 채점·풀이 확인 → 3문제 다 풀면 요약(summary).
+     흐름: 퀴즈 시작(start) → 문제별 제출(submit)로 그 자리에서 채점·풀이 확인 → 모든 문제를 다 풀면 요약(summary).
      서버 API 는 QuizController 가 처리하며, 모두 로그인이 필요하다. */
   const quizState = { quizId: null, total: 0, answered: 0 };
 
@@ -1225,7 +1225,7 @@
 
       quizStartBtn.disabled = true;
       try {
-        // REQ-Q-002, REQ-Q-003: 1일차 학습 범위로 BASIC 2 + APPLIED 1 문제 생성
+        // REQ-Q-002, REQ-Q-003: 1일차 학습 범위로 항목마다 BASIC 1 + APPLIED 1 문제 생성
         const preview = await callApi('/api/quizzes/preview', {
           method: 'POST',
           body: JSON.stringify({ subjectName: '테스트', todayScope })
@@ -1361,7 +1361,7 @@
     box.scrollIntoView({ behavior: 'smooth' });
   }
 
-  /* REQ-Q-006: 3문제를 모두 제출하면 맞힌 개수를 요약해 보여준다. */
+  /* REQ-Q-006: 문제를 모두 제출하면 맞힌 개수를 요약해 보여준다. */
   async function loadQuizSummary(){
     try {
       const s = await callApi(`/api/quizzes/${quizState.quizId}/summary`);

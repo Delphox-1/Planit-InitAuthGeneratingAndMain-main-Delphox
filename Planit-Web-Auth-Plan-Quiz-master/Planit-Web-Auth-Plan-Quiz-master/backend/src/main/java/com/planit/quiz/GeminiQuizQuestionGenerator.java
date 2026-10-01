@@ -20,8 +20,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Google Gemini(Generative Language API)로 오늘 학습 범위에 맞는 퀴즈 3문항을 생성한다 (REQ-Q-002, REQ-Q-003).
- * 쉬운 문제(BASIC) 2개 + 응용 문제(APPLIED) 1개.
+ * Google Gemini(Generative Language API)로 오늘 학습 범위에 맞는 퀴즈를 생성한다 (REQ-Q-002, REQ-Q-003).
+ * 출제 대상 항목마다 쉬운 문제(BASIC) 1개 + 응용 문제(APPLIED) 1개, 항목 순서대로.
  *
  * <pre>
  *   POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}
@@ -40,7 +40,7 @@ public class GeminiQuizQuestionGenerator implements QuizQuestionGenerator {
 
 	private static final String BASE_URL = "https://generativelanguage.googleapis.com";
 	private static final String DEFAULT_MODEL = "gemini-3.6-flash";
-	private static final int REQUIRED_COUNT = 3;
+	private static final int QUESTIONS_PER_ITEM = 2;
 	private static final int MAX_ATTEMPTS = 3;
 	private static final long RETRY_DELAY_MS = 1_500L;
 
@@ -68,22 +68,24 @@ public class GeminiQuizQuestionGenerator implements QuizQuestionGenerator {
 	}
 
 	@Override
-	public List<GeneratedQuestion> generate(String subjectName, String todayScope) {
+	public List<GeneratedQuestion> generate(String subjectName, List<String> scopeParts) {
+		String todayScope = String.join(", ", scopeParts);
+		int expected = scopeParts.size() * QUESTIONS_PER_ITEM;
 		if (apiKey.isEmpty()) {
 			log.info("[quiz] gemini.api-key 가 없어 고정 예시 문제로 대체합니다 "
 				+ "(환경변수 GEMINI_API_KEY 를 설정하면 Gemini 가 출제합니다)");
-			return fallback.generate(subjectName, todayScope);
+			return fallback.generate(subjectName, scopeParts);
 		}
 		for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
 			try {
-				List<GeneratedQuestion> questions = callGemini(todayScope);
-				validate(questions);
+				List<GeneratedQuestion> questions = callGemini(scopeParts);
+				validate(questions, expected);
 				log.info("[quiz] Gemini({}) 출제 완료: {}문항 (범위: {})", model, questions.size(), todayScope);
 				return questions;
 			} catch (HttpClientErrorException e) {
 				// 4xx(키·요청 오류)는 재시도해도 소용없다. 바로 폴백.
 				log.warn("[quiz] Gemini 요청 거부(4xx) → 고정 예시로 대체: {}", e.getMessage());
-				return fallback.generate(subjectName, todayScope);
+				return fallback.generate(subjectName, scopeParts);
 			} catch (RestClientException e) {
 				// 5xx(과부하)·타임아웃·응답 추출 실패 등 일시적 오류 → 재시도.
 				log.warn("[quiz] Gemini 호출 실패({}/{}): {}", attempt, MAX_ATTEMPTS, e.getMessage());
@@ -93,11 +95,11 @@ public class GeminiQuizQuestionGenerator implements QuizQuestionGenerator {
 			} catch (Exception e) {
 				// JSON 파싱·검증 실패 → 재시도 무의미. 폴백.
 				log.warn("[quiz] Gemini 응답 처리 실패 → 고정 예시로 대체: {}", e.getMessage());
-				return fallback.generate(subjectName, todayScope);
+				return fallback.generate(subjectName, scopeParts);
 			}
 		}
 		log.warn("[quiz] Gemini 재시도 {}회 모두 실패 → 고정 예시로 대체", MAX_ATTEMPTS);
-		return fallback.generate(subjectName, todayScope);
+		return fallback.generate(subjectName, scopeParts);
 	}
 
 	private static void sleep(long ms) {
@@ -108,9 +110,9 @@ public class GeminiQuizQuestionGenerator implements QuizQuestionGenerator {
 		}
 	}
 
-	private List<GeneratedQuestion> callGemini(String todayScope) throws Exception {
+	private List<GeneratedQuestion> callGemini(List<String> scopeParts) throws Exception {
 		Map<String, Object> body = Map.of(
-			"contents", List.of(Map.of("parts", List.of(Map.of("text", buildPrompt(todayScope))))),
+			"contents", List.of(Map.of("parts", List.of(Map.of("text", buildPrompt(scopeParts))))),
 			"generationConfig", Map.of(
 				"temperature", 0.7,
 				// 퀴즈 출제엔 깊은 추론이 필요 없다. 추론 토큰(비용/지연)을 낮춘다.
@@ -156,10 +158,10 @@ public class GeminiQuizQuestionGenerator implements QuizQuestionGenerator {
 		return result;
 	}
 
-	/** 3문항인지, 각 문항의 필드·정답 번호·유형이 정상인지 확인한다. 어긋나면 예외 → 폴백. */
-	private void validate(List<GeneratedQuestion> questions) {
-		if (questions.size() != REQUIRED_COUNT) {
-			throw new IllegalStateException("문항 수가 " + REQUIRED_COUNT + "개가 아닙니다: " + questions.size());
+	/** 항목 수 x 2문항인지, 각 문항의 필드·정답 번호·유형이 정상인지 확인한다. 어긋나면 예외 → 폴백. */
+	private void validate(List<GeneratedQuestion> questions, int expected) {
+		if (questions.size() != expected) {
+			throw new IllegalStateException("문항 수가 " + expected + "개가 아닙니다: " + questions.size());
 		}
 		for (GeneratedQuestion q : questions) {
 			if (isBlank(q.questionText()) || isBlank(q.choice1()) || isBlank(q.choice2())
@@ -174,28 +176,36 @@ public class GeminiQuizQuestionGenerator implements QuizQuestionGenerator {
 			}
 		}
 		long applied = questions.stream().filter(q -> "APPLIED".equals(q.questionType())).count();
-		if (applied != 1) {
-			log.warn("[quiz] APPLIED 문항이 1개가 아닙니다(={}). 그대로 사용합니다.", applied);
+		if (applied != expected / QUESTIONS_PER_ITEM) {
+			log.warn("[quiz] APPLIED 문항이 항목 수와 다릅니다(={}, 기대={}). 그대로 사용합니다.",
+				applied, expected / QUESTIONS_PER_ITEM);
 		}
 	}
 
-	private String buildPrompt(String todayScope) {
+	private String buildPrompt(List<String> scopeParts) {
+		StringBuilder items = new StringBuilder();
+		for (int i = 0; i < scopeParts.size(); i++) {
+			items.append(i + 1).append(". ").append(scopeParts.get(i)).append('\n');
+		}
+		int total = scopeParts.size() * QUESTIONS_PER_ITEM;
 		return """
-			당신은 학습 퀴즈 출제자입니다. 아래 '오늘 학습 범위'만을 바탕으로 한국어 4지선다 객관식 문제 3개를 만드세요.
+			당신은 학습 퀴즈 출제자입니다. 아래 '오늘 학습 범위'의 항목마다 한국어 4지선다 객관식 문제를 2개씩 만들어, 총 %d개를 만드세요.
 
 			규칙:
-			- 1번, 2번 문제는 개념 확인 수준으로 만들고 questionType 을 "BASIC" 으로 합니다.
-			- 3번 문제는 배운 내용을 실제 상황에 적용하는 응용 수준으로 만들고 questionType 을 "APPLIED" 로 합니다.
+			- 항목 순서대로, 항목 하나당 2문제를 연달아 배치합니다 (1번 항목의 두 문제 → 2번 항목의 두 문제 → ...).
+			- 각 항목의 첫 번째 문제는 개념 확인 수준으로 만들고 questionType 을 "BASIC" 으로 합니다.
+			- 각 항목의 두 번째 문제는 배운 내용을 실제 상황에 적용하는 응용 수준으로 만들고 questionType 을 "APPLIED" 로 합니다.
+			- 각 문제는 해당 항목의 내용만으로 출제하고, 다른 항목과 겹치는 문제를 만들지 않습니다.
 			- 각 문제는 보기 4개(choice1~choice4), 정답 번호(answerNo, 1~4 정수), 한국어 해설(explanation)을 포함합니다.
 			- 정답 위치(answerNo)는 문제마다 다양하게 분포시킵니다.
 			- 오늘 학습 범위를 벗어나는 내용은 출제하지 않습니다.
 			- 화면이 LaTeX/마크다운을 렌더링하지 않으므로, 수식은 "$", "\\", "^{}" 같은 LaTeX
 			  문법을 쓰지 말고 일반 텍스트로 풀어 씁니다. 예: "a^x" 대신 "a의 x제곱",
 			  "x_1" 대신 "x1", "\\neq" 대신 "≠"처럼 유니코드 기호나 한글 설명으로 대체합니다.
-			- 지정된 JSON 스키마(객체 3개짜리 배열)에 맞춰서만 응답합니다.
+			- 지정된 JSON 스키마(객체 %d개짜리 배열)에 맞춰서만 응답합니다.
 
-			오늘 학습 범위: %s
-			""".formatted(todayScope);
+			오늘 학습 범위(항목 %d개):
+			%s""".formatted(total, total, scopeParts.size(), items.toString().stripTrailing());
 	}
 
 	/** Gemini 의 responseSchema (OpenAPI 서브셋). GeneratedQuestion 필드와 1:1. */

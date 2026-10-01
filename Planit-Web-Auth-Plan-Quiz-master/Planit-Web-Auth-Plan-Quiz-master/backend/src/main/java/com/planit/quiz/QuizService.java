@@ -75,8 +75,15 @@ public class QuizService {
 		}
 	}
 
+	/** 화면 표시용 응답 + 출제 대상 항목 목록(항목별로 문제를 내기 위해 문자열로 합치기 전 상태). */
+	private record TodayData(TodayPlanResponse response, List<String> scopeParts) {}
+
 	/** 로그인 사용자의 오늘(study_plan_items) 항목을 읽어 화면 표시용 목록과 출제 범위 문자열을 만든다. */
 	public TodayPlanResponse todayPlan(String uid) {
+		return loadToday(uid).response();
+	}
+
+	private TodayData loadToday(String uid) {
 		requirePdfSource(uid);
 
 		String today = LocalDate.now().toString();
@@ -130,13 +137,19 @@ public class QuizService {
 			log.warn("[quiz] uid={} 진행률 {}% 이상인 항목이 없어 오늘 전체 범위로 출제합니다", uid, QUIZ_SCOPE_MIN_PROGRESS);
 		}
 
-		return new TodayPlanResponse(today, totalMinutes, items, String.join(", ", scopeParts));
+		return new TodayData(
+			new TodayPlanResponse(today, totalMinutes, items, String.join(", ", scopeParts)),
+			scopeParts);
 	}
 
-	/** REQ-Q-001 ~ REQ-Q-003: 오늘 학습 범위로 퀴즈 1세트 생성 → Firestore 저장. 정답/풀이는 응답에서 뺀다. */
+	/**
+	 * REQ-Q-001 ~ REQ-Q-003: 오늘 학습 범위로 퀴즈 1세트 생성 → Firestore 저장. 정답/풀이는 응답에서 뺀다.
+	 * 출제 대상 항목마다 2문제(기본 1 + 응용 1)씩 낸다.
+	 */
 	public StartResponse start(String uid) throws Exception {
-		TodayPlanResponse plan = todayPlan(uid);
-		List<GeneratedQuestion> generated = questionGenerator.generate("quiz", plan.scope());
+		TodayData today = loadToday(uid);
+		TodayPlanResponse plan = today.response();
+		List<GeneratedQuestion> generated = questionGenerator.generate("quiz", today.scopeParts());
 
 		List<Map<String, Object>> questionDocs = new ArrayList<>();
 		int no = 1;

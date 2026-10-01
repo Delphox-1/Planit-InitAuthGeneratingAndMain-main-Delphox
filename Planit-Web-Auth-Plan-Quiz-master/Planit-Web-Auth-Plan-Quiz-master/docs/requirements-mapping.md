@@ -37,7 +37,7 @@ Firebase Admin SDK 로 Firestore 를 다룹니다. 브라우저는 Firestore 를
 | 요구사항 ID | 내용 | 구현 위치 |
 |---|---|---|
 | REQ-Q-001 | 퀴즈 응시 트리거 | `frontend/quiz.html#start-btn` → `POST /api/quizzes` → `QuizService#start` |
-| REQ-Q-002 | 퀴즈 문제 구성 (기본2 + 응용1) | `MockQuizQuestionGenerator#generate` |
+| REQ-Q-002 | 퀴즈 문제 구성 (출제 대상 항목마다 기본1 + 응용1) | `GeminiQuizQuestionGenerator#generate` |
 | REQ-Q-003 | 출제 범위 제한 | `QuizService#todayPlan` (study_plan.json 1일차 → scope) |
 | REQ-Q-004 | 정답 선택 및 제출 | `POST /api/quizzes/{id}/answers/{no}` → `QuizService#submit` (Firestore `answers` 서브컬렉션) |
 | REQ-Q-005 | 정답 확인 및 풀이 표시 | `QuizService#submit` 응답 + `frontend/quiz.html` 결과 렌더 |
@@ -79,7 +79,7 @@ Firebase Admin SDK 로 Firestore 를 다룹니다. 브라우저는 Firestore 를
 
 ## 아직 팀 논의가 필요한 항목
 
-1. **퀴즈 문제 생성 방식**: 지금은 `MockQuizQuestionGenerator` 가 고정 예시 3문제 반환.
+1. **퀴즈 문제 생성 방식**: Gemini 가 출제 대상 항목마다 2문제(기본 1 + 응용 1)를 생성하고, 키가 없거나 실패하면 `MockQuizQuestionGenerator` 의 고정 예시 3문제로 대체.
    OpenAI 연동(박지민 담당)이 정해지면 새 `QuizQuestionGenerator` 구현체를 `@Primary` 로 등록.
 2. **퀴즈 결과 ↔ 체크리스트/계획 재조정 연동**: 유시우·김경태·박지민 담당 기능과 연결 필요. 미연결.
 3. **서비스 계정 키**: `backend/src/main/resources/firebase-service-account.json` 이 있어야 서버가 Firestore 에

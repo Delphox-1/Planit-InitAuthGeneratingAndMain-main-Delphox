@@ -71,7 +71,7 @@ backend/                         ← Spring Boot (Java 17, Gradle)
     quiz/
       QuizController.java        GET /today-plan, POST /, POST /{id}/answers/{no}, GET /{id}/summary
       QuizService.java           Firestore(Admin SDK) 로 생성·채점·요약
-      QuizQuestionGenerator.java / MockQuizQuestionGenerator.java   고정 예시 3문제
+      QuizQuestionGenerator.java / MockQuizQuestionGenerator.java   Mock: 고정 예시 3문제(비상용) / Gemini: 항목마다 2문제
     global/
       ApiException.java / GlobalExceptionHandler.java
   src/main/resources/
@@ -222,7 +222,7 @@ backend/                         ← Spring Boot（Java 17, Gradle）
     quiz/
       QuizController.java        GET /today-plan, POST /, POST /{id}/answers/{no}, GET /{id}/summary
       QuizService.java           Firestore（Admin SDK）で生成・採点・集計
-      QuizQuestionGenerator.java / MockQuizQuestionGenerator.java   固定サンプル3問
+      QuizQuestionGenerator.java / MockQuizQuestionGenerator.java   Mock: 固定サンプル3問(予備) / Gemini: 項目ごとに2問
     global/
       ApiException.java / GlobalExceptionHandler.java
   src/main/resources/
@@ -299,7 +299,7 @@ quizzes/{quizId}/answers/{questionNo}  { selectedChoice, correct, answeredAt }
 
 ### まだやっていないこと
 
-- クイズの問題は固定の3問です。OpenAI 連携はパク・ジミン担当で、方式が決まったら
+- クイズの問題は、出題対象の項目ごとに2問(基本1＋応用1)をGeminiが作ります。キーがない時や失敗時は固定の3問に切り替わります。OpenAI 連携はパク・ジミン担当で、方式が決まったら
   `MockQuizQuestionGenerator` の代わりに新しい `QuizQuestionGenerator` 実装を `@Primary` で登録します。
 - クイズ結果をチェックリスト／再計画機能とつなぐ部分はまだです。
 - 退会時に他ドメインのデータ（`study_plan_items` など）まで削除する方法（例：Auth の `onDelete`

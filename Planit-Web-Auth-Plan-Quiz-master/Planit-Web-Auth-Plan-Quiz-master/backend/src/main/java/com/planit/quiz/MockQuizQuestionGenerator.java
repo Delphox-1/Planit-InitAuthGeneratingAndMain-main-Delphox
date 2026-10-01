@@ -5,15 +5,15 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 
 /**
- * 개발/테스트용 기본 구현체. 입력과 무관하게 항상 같은 예시 3문제를 돌려준다.
+ * 개발/테스트용 기본 구현체. 입력(항목 수)과 무관하게 항상 같은 예시 3문제를 돌려준다.
  * 예시는 study_plan.json 1일차 범위(운영체제의 개요 / 리눅스의 기초)에 맞췄다.
- * BASIC 2 + APPLIED 1 (REQ-Q-002).
+ * BASIC 2 + APPLIED 1. Gemini 호출이 불가능할 때의 비상용이라 항목별 2문제 규칙은 적용하지 않는다.
  */
 @Component
 public class MockQuizQuestionGenerator implements QuizQuestionGenerator {
 
 	@Override
-	public List<GeneratedQuestion> generate(String subjectName, String todayScope) {
+	public List<GeneratedQuestion> generate(String subjectName, List<String> scopeParts) {
 		return List.of(
 			new GeneratedQuestion(
 				"BASIC",
