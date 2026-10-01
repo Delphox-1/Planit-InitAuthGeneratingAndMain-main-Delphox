@@ -63,7 +63,7 @@ public class GeminiQuizQuestionGenerator implements QuizQuestionGenerator {
 
 		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
 		factory.setConnectTimeout(5_000);
-		factory.setReadTimeout(30_000); // thinking 모델은 응답이 느릴 수 있다
+		factory.setReadTimeout(60_000); // thinking 모델은 응답이 느릴 수 있다
 		this.restClient = RestClient.builder().requestFactory(factory).baseUrl(BASE_URL).build();
 	}
 
